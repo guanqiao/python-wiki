@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from pywiki.memory.base import BaseMemory
+
 
 @dataclass
 class UserPreference:
@@ -82,14 +84,14 @@ class TechStackPreference:
         }
 
 
-class GlobalMemory:
+class GlobalMemory(BaseMemory):
     """
     全局记忆管理器
     存储用户级别的偏好和知识
     """
 
     def __init__(self, storage_path: Optional[Path] = None):
-        self.storage_path = storage_path or Path.home() / ".pywiki" / "global_memory"
+        super().__init__(storage_path or Path.home() / ".pywiki" / "global_memory")
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         self._preferences: dict[str, UserPreference] = {}
@@ -98,6 +100,62 @@ class GlobalMemory:
         self._knowledge_base: dict[str, Any] = {}
 
         self._load()
+
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为字典"""
+        return {
+            "preferences": {k: v.to_dict() for k, v in self._preferences.items()},
+            "coding_style": self._coding_style.to_dict(),
+            "tech_stack": {k: v.to_dict() for k, v in self._tech_stack.items()},
+            "knowledge": self._knowledge_base,
+        }
+
+    def from_dict(self, data: dict[str, Any]) -> "GlobalMemory":
+        """从字典反序列化"""
+        if "preferences" in data:
+            for key, pref_data in data["preferences"].items():
+                self._preferences[key] = UserPreference(
+                    key=pref_data["key"],
+                    value=pref_data["value"],
+                    category=pref_data.get("category", "general"),
+                    confidence=pref_data.get("confidence", 1.0),
+                    source=pref_data.get("source", "explicit"),
+                    created_at=datetime.fromisoformat(pref_data["created_at"]),
+                    updated_at=datetime.fromisoformat(pref_data["updated_at"]),
+                    access_count=pref_data.get("access_count", 0),
+                )
+
+        if "coding_style" in data:
+            style_data = data["coding_style"]
+            self._coding_style = CodingStyle(
+                indent_style=style_data.get("indent_style", "space"),
+                indent_size=style_data.get("indent_size", 4),
+                quote_style=style_data.get("quote_style", "double"),
+                naming_convention=style_data.get("naming_convention", "snake_case"),
+                max_line_length=style_data.get("max_line_length", 100),
+                docstring_style=style_data.get("docstring_style", "google"),
+                import_order=style_data.get("import_order", "isort"),
+                type_hints=style_data.get("type_hints", True),
+                preferences=style_data.get("preferences", {}),
+            )
+
+        if "tech_stack" in data:
+            for lang, ts_data in data["tech_stack"].items():
+                self._tech_stack[lang] = TechStackPreference(
+                    language=ts_data["language"],
+                    frameworks=ts_data.get("frameworks", []),
+                    libraries=ts_data.get("libraries", []),
+                    tools=ts_data.get("tools", []),
+                    version_preferences=ts_data.get("version_preferences", {}),
+                    expertise_level=ts_data.get("expertise_level", "intermediate"),
+                    last_used=datetime.fromisoformat(ts_data["last_used"])
+                    if ts_data.get("last_used") else datetime.now(),
+                )
+
+        if "knowledge" in data:
+            self._knowledge_base = data["knowledge"]
+
+        return self
 
     def _get_preferences_path(self) -> Path:
         return self.storage_path / "preferences.json"

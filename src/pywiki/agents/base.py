@@ -183,6 +183,14 @@ class BaseAgent(ABC):
     def clear_history(self) -> None:
         """清除执行历史"""
         self._execution_history.clear()
+    
+    def _extract_json(self, text: str) -> str:
+        """从文本中提取 JSON 字符串"""
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            return text[start:end+1]
+        return text
 
 
 class CompositeAgent(BaseAgent):

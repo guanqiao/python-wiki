@@ -7,5 +7,13 @@ from pywiki.gui.panels.config_panel import ConfigPanel
 from pywiki.gui.panels.preview_panel import PreviewPanel
 from pywiki.gui.panels.progress_panel import ProgressPanel
 from pywiki.gui.panels.qa_panel import QAPanel
+from pywiki.gui.panels.doc_type_panel import DocTypePanel
 
-__all__ = ["ProjectPanel", "ConfigPanel", "PreviewPanel", "ProgressPanel", "QAPanel"]
+__all__ = [
+    "ProjectPanel",
+    "ConfigPanel",
+    "PreviewPanel",
+    "ProgressPanel",
+    "QAPanel",
+    "DocTypePanel",
+]

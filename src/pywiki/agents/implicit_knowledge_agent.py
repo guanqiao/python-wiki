@@ -487,11 +487,3 @@ class ImplicitKnowledgeAgent(BaseAgent):
         
         traverse(project_path)
         return "\n".join(lines[:100])
-    
-    def _extract_json(self, text: str) -> str:
-        """从文本中提取 JSON"""
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1:
-            return text[start:end+1]
-        return text

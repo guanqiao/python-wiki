@@ -35,10 +35,10 @@ class SearchMemoryTool:
         self._memories: Dict[str, MemoryItem] = {}
         self._load_memories()
 
-    def _get_memories_path(self) -&gt; Path:
+    def _get_memories_path(self) -> Path:
         return self.storage_path / "search_memories.json"
 
-    def _load_memories(self) -&gt; None:
+    def _load_memories(self) -> None:
         memories_path = self._get_memories_path()
         if memories_path.exists():
             try:
@@ -53,7 +53,7 @@ class SearchMemoryTool:
         else:
             self._memories = {}
 
-    def _save_memories(self) -&gt; None:
+    def _save_memories(self) -> None:
         memories_path = self._get_memories_path()
         data_list = [asdict(mem) for mem in self._memories.values()]
         with open(memories_path, "w", encoding="utf-8") as f:
@@ -65,7 +65,7 @@ class SearchMemoryTool:
         metadata: Optional[Dict[str, Any]] = None,
         importance: float = 0.5,
         memory_id: Optional[str] = None,
-    ) -&gt; MemoryItem:
+    ) -> MemoryItem:
         """
         添加记忆
         
@@ -102,7 +102,7 @@ class SearchMemoryTool:
         self._save_memories()
         return memory
 
-    def get_memory(self, memory_id: str) -&gt; Optional[MemoryItem]:
+    def get_memory(self, memory_id: str) -> Optional[MemoryItem]:
         """获取记忆"""
         memory = self._memories.get(memory_id)
         if memory:
@@ -110,7 +110,7 @@ class SearchMemoryTool:
             self._save_memories()
         return memory
 
-    def delete_memory(self, memory_id: str) -&gt; bool:
+    def delete_memory(self, memory_id: str) -> bool:
         """删除记忆"""
         if memory_id in self._memories:
             del self._memories[memory_id]
@@ -130,7 +130,7 @@ class SearchMemoryTool:
         query: str,
         top_k: int = 10,
         min_importance: float = 0.0,
-    ) -&gt; List[MemoryItem]:
+    ) -> List[MemoryItem]:
         """
         搜索记忆
         
@@ -152,7 +152,7 @@ class SearchMemoryTool:
                     mem_id = result.get("metadata", {}).get("memory_id")
                     if mem_id and mem_id in self._memories:
                         memory = self._memories[mem_id]
-                        if memory.importance &gt;= min_importance:
+                        if memory.importance >= min_importance:
                             memory.access_count += 1
                             results.append(memory)
             except Exception:
@@ -161,7 +161,7 @@ class SearchMemoryTool:
         if not results:
             query_lower = query.lower()
             for memory in self._memories.values():
-                if memory.importance &gt;= min_importance:
+                if memory.importance >= min_importance:
                     if query_lower in memory.content.lower():
                         memory.access_count += 1
                         results.append(memory)
@@ -170,7 +170,7 @@ class SearchMemoryTool:
         self._save_memories()
         return results[:top_k]
 
-    def get_recent_memories(self, limit: int = 20) -&gt; List[MemoryItem]:
+    def get_recent_memories(self, limit: int = 20) -> List[MemoryItem]:
         """获取最近的记忆"""
         memories = sorted(
             self._memories.values(),
@@ -179,7 +179,7 @@ class SearchMemoryTool:
         )
         return memories[:limit]
 
-    def get_important_memories(self, limit: int = 20) -&gt; List[MemoryItem]:
+    def get_important_memories(self, limit: int = 20) -> List[MemoryItem]:
         """获取重要的记忆"""
         memories = sorted(
             self._memories.values(),
@@ -188,7 +188,7 @@ class SearchMemoryTool:
         )
         return memories[:limit]
 
-    def update_importance(self, memory_id: str, importance: float) -&gt; bool:
+    def update_importance(self, memory_id: str, importance: float) -> bool:
         """更新记忆重要性"""
         memory = self._memories.get(memory_id)
         if memory:
@@ -201,7 +201,7 @@ class SearchMemoryTool:
         self,
         query: str,
         max_memories: int = 5,
-    ) -&gt; str:
+    ) -> str:
         """
         为查询获取相关上下文
         
@@ -226,11 +226,11 @@ class SearchMemoryTool:
         
         return "\n\n".join(context_parts)
 
-    def list_all_memories(self) -&gt; List[MemoryItem]:
+    def list_all_memories(self) -> List[MemoryItem]:
         """列出所有记忆"""
         return list(self._memories.values())
 
-    def clear_memories(self) -&gt; None:
+    def clear_memories(self) -> None:
         """清空所有记忆"""
         self._memories.clear()
         
@@ -242,7 +242,7 @@ class SearchMemoryTool:
         
         self._save_memories()
 
-    def get_stats(self) -&gt; Dict[str, Any]:
+    def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         return {
             "total_memories": len(self._memories),

@@ -9,13 +9,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from pywiki.config.models import ProjectConfig, WikiConfig
+from pywiki.config.models import ProjectConfig, WikiConfig, Language
 from pywiki.parsers.python import PythonParser
 from pywiki.parsers.types import ModuleInfo, ParseResult
 from pywiki.llm.client import LLMClient
 from pywiki.generators.markdown import MarkdownGenerator
 from pywiki.wiki.storage import WikiStorage
 from pywiki.wiki.history import WikiHistory
+from pywiki.generators.docs.base import DocType, DocGeneratorContext
 
 
 class GenerationStatus(str, Enum):
@@ -253,3 +254,125 @@ class WikiManager:
     def get_history(self, doc_path: Path) -> list[dict]:
         """获取文档历史"""
         return self.history.get_history(doc_path)
+
+    async def generate_docs(
+        self,
+        doc_types: Optional[list[DocType]] = None,
+        output_dir: Optional[Path] = None,
+        language: Optional[Language] = None,
+        progress_callback: Optional[Callable[[dict], None]] = None,
+    ) -> dict[str, Any]:
+        """生成项目文档（对标 Qoder Wiki）
+        
+        Args:
+            doc_types: 要生成的文档类型列表，默认生成全部
+            output_dir: 输出目录，默认使用项目配置
+            language: 文档语言，默认使用项目配置
+            progress_callback: 进度回调函数
+            
+        Returns:
+            生成结果字典，包含成功/失败信息
+        """
+        from pywiki.agents.documentation_agent import DocumentationAgent, DocGenerationStatus
+
+        if doc_types is None:
+            doc_types = list(DocType)
+
+        if output_dir is None:
+            output_dir = self.project.path / self.wiki_config.output_dir
+
+        if language is None:
+            language = self.wiki_config.language
+
+        if self._parse_result is None:
+            self._parse_result = self.parser.parse_directory(self.project.path)
+
+        agent = DocumentationAgent()
+        if self.llm_client:
+            agent.llm_client = self.llm_client
+
+        if progress_callback:
+            agent.register_progress_callback(
+                lambda p: progress_callback({
+                    "status": p.status.value,
+                    "current_doc": p.current_doc,
+                    "completed_docs": p.completed_docs,
+                    "total_docs": p.total_docs,
+                    "errors": p.errors,
+                })
+            )
+
+        from pywiki.agents.base import AgentContext
+        context = AgentContext(
+            project_path=self.project.path,
+            project_name=self.project.name,
+            metadata={
+                "doc_types": doc_types,
+                "output_dir": output_dir,
+                "language": language,
+                "llm_client": self.llm_client,
+                "parse_result": self._parse_result,
+            },
+        )
+
+        result = await agent.execute(context)
+
+        return {
+            "success": result.success,
+            "generated_files": result.data.get("generated_files", []) if result.data else [],
+            "failed_docs": result.data.get("failed_docs", []) if result.data else [],
+            "duration_seconds": result.data.get("duration_seconds", 0) if result.data else 0,
+            "message": result.message,
+        }
+
+    async def generate_doc(
+        self,
+        doc_type: DocType,
+        language: Optional[Language] = None,
+    ) -> dict[str, Any]:
+        """生成单个文档
+        
+        Args:
+            doc_type: 文档类型
+            language: 文档语言
+            
+        Returns:
+            生成结果字典
+        """
+        from pywiki.agents.documentation_agent import DocumentationAgent
+        from pywiki.agents.base import AgentContext
+
+        if language is None:
+            language = self.wiki_config.language
+
+        if self._parse_result is None:
+            self._parse_result = self.parser.parse_directory(self.project.path)
+
+        agent = DocumentationAgent()
+        if self.llm_client:
+            agent.llm_client = self.llm_client
+
+        context = AgentContext(
+            project_path=self.project.path,
+            project_name=self.project.name,
+            metadata={
+                "output_dir": self.project.path / self.wiki_config.output_dir,
+                "language": language,
+                "llm_client": self.llm_client,
+                "parse_result": self._parse_result,
+            },
+        )
+
+        result = await agent.generate_single_doc(context, doc_type, language)
+
+        return {
+            "success": result.success,
+            "file_path": result.data.get("file_path") if result.data else None,
+            "message": result.message,
+        }
+
+    def get_supported_doc_types(self) -> list[dict[str, str]]:
+        """获取支持的文档类型"""
+        from pywiki.agents.documentation_agent import DocumentationAgent
+        agent = DocumentationAgent()
+        return agent.get_supported_doc_types()

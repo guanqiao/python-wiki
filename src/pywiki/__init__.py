@@ -20,6 +20,8 @@ from pywiki.memory.personal import PersonalMemory
 from pywiki.memory.project import ProjectMemory
 from pywiki.memory.solutions import SolutionMemory
 from pywiki.agent.search_memory import SearchMemoryTool
+from pywiki.generators.docs.base import DocType, DocGeneratorContext, DocGeneratorResult
+from pywiki.agents.documentation_agent import DocumentationAgent
 
 __all__ = [
     "Settings",
@@ -37,5 +39,9 @@ __all__ = [
     "ProjectMemory",
     "SolutionMemory",
     "SearchMemoryTool",
+    "DocType",
+    "DocGeneratorContext",
+    "DocGeneratorResult",
+    "DocumentationAgent",
     "__version__",
 ]

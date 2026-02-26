@@ -1,0 +1,57 @@
+# {{ labels['tech_stack'] }}
+
+{% if summary %}
+## {{ labels['overview'] }}
+
+{{ summary }}
+{% endif %}
+
+{% if frameworks %}
+## 框架
+
+| 名称 | 版本 | 描述 |
+|------|------|------|
+{% for fw in frameworks %}
+| {{ fw.name }} | {{ fw.version or '-' }} | {{ fw.description }} |
+{% endfor %}
+{% endif %}
+
+{% if databases %}
+## 数据库
+
+| 名称 | 类型 | 描述 |
+|------|------|------|
+{% for db in databases %}
+| {{ db.name }} | {{ db.type }} | {{ db.description }} |
+{% endfor %}
+{% endif %}
+
+{% if libraries %}
+## 核心库
+
+| 名称 | 类别 | 版本 | 描述 |
+|------|------|------|------|
+{% for lib in libraries %}
+| {{ lib.name }} | {{ lib.category }} | {{ lib.version or '-' }} | {{ lib.description }} |
+{% endfor %}
+{% endif %}
+
+{% if tools %}
+## 工具
+
+| 名称 | 类别 | 描述 |
+|------|------|------|
+{% for tool in tools %}
+| {{ tool.name }} | {{ tool.category }} | {{ tool.description }} |
+{% endfor %}
+{% endif %}
+
+{% if language_stats %}
+## 语言分布
+
+| 语言 | 文件数 | 占比 |
+|------|--------|------|
+{% for lang, stat in language_stats.items() %}
+| {{ lang }} | {{ stat.files }} | {{ stat.percentage }}% |
+{% endfor %}
+{% endif %}

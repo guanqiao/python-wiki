@@ -2,6 +2,7 @@
 主窗口
 """
 
+import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -18,9 +19,10 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QFileDialog,
     QTabWidget,
+    QApplication,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
+from PyQt6.QtGui import QAction, QKeySequence
 
 from pywiki.config.settings import Settings
 from pywiki.config.models import ProjectConfig, LLMConfig
@@ -29,8 +31,85 @@ from pywiki.gui.panels.config_panel import ConfigPanel
 from pywiki.gui.panels.preview_panel import PreviewPanel
 from pywiki.gui.panels.progress_panel import ProgressPanel
 from pywiki.gui.panels.qa_panel import QAPanel
+from pywiki.gui.panels.doc_type_panel import DocTypePanel
 from pywiki.gui.dialogs.new_project_dialog import NewProjectDialog
 from pywiki.gui.dialogs.llm_config_dialog import LLMConfigDialog
+from pywiki.generators.docs.base import DocType
+
+
+class DocGeneratorThread(QThread):
+    """文档生成线程"""
+    
+    progress_updated = pyqtSignal(int, str)
+    generation_completed = pyqtSignal(bool, str)
+    stage_changed = pyqtSignal(str, str)
+    
+    def __init__(
+        self,
+        project: ProjectConfig,
+        doc_types: list[DocType],
+        llm_config: Optional[LLMConfig] = None,
+    ):
+        super().__init__()
+        self.project = project
+        self.doc_types = doc_types
+        self.llm_config = llm_config
+        self._is_cancelled = False
+    
+    def run(self):
+        try:
+            asyncio.run(self._generate_docs())
+        except Exception as e:
+            self.generation_completed.emit(False, str(e))
+    
+    async def _generate_docs(self):
+        from pywiki.wiki.manager import WikiManager
+        from pywiki.llm.client import LLMClient
+        
+        llm_client = None
+        if self.llm_config:
+            llm_client = LLMClient(
+                api_key=self.llm_config.api_key.get_secret_value(),
+                endpoint=self.llm_config.endpoint,
+                model=self.llm_config.model,
+            )
+        
+        def progress_callback(progress):
+            if self._is_cancelled:
+                return
+            pct = int((progress.get("completed_docs", 0) / max(progress.get("total_docs", 1), 1)) * 100)
+            self.progress_updated.emit(pct, progress.get("current_doc", ""))
+        
+        manager = WikiManager(
+            project=self.project,
+            llm_client=llm_client,
+            progress_callback=progress_callback,
+        )
+        
+        total = len(self.doc_types)
+        for i, doc_type in enumerate(self.doc_types):
+            if self._is_cancelled:
+                break
+            
+            self.stage_changed.emit(doc_type.value, "running")
+            self.progress_updated.emit(
+                int((i / total) * 100),
+                f"正在生成: {doc_type.value}"
+            )
+            
+            try:
+                result = await manager.generate_doc(doc_type)
+                if result.get("success"):
+                    self.stage_changed.emit(doc_type.value, "completed")
+                else:
+                    self.stage_changed.emit(doc_type.value, "error")
+            except Exception as e:
+                self.stage_changed.emit(doc_type.value, "error")
+        
+        self.generation_completed.emit(True, "文档生成完成")
+    
+    def cancel(self):
+        self._is_cancelled = True
 
 
 class MainWindow(QMainWindow):
@@ -45,6 +124,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.settings = settings
         self._current_project: Optional[ProjectConfig] = None
+        self._generator_thread: Optional[DocGeneratorThread] = None
 
         self._init_ui()
         self._init_menu()
@@ -53,10 +133,10 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._load_last_project()
 
-    def _init_ui(self) -&gt; None:
+    def _init_ui(self) -> None:
         self.setWindowTitle("Python Wiki - AI 文档生成器")
-        self.setMinimumSize(1200, 800)
-        self.resize(1400, 900)
+        self.setMinimumSize(1400, 900)
+        self.resize(1600, 1000)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -66,8 +146,16 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
+        left_splitter = QSplitter(Qt.Orientation.Vertical)
+        
         self.project_panel = ProjectPanel()
-        splitter.addWidget(self.project_panel)
+        left_splitter.addWidget(self.project_panel)
+
+        self.doc_type_panel = DocTypePanel()
+        left_splitter.addWidget(self.doc_type_panel)
+
+        left_splitter.setSizes([300, 400])
+        splitter.addWidget(left_splitter)
 
         right_splitter = QSplitter(Qt.Orientation.Vertical)
 
@@ -87,7 +175,7 @@ class MainWindow(QMainWindow):
         right_splitter.setSizes([600, 200])
 
         splitter.addWidget(right_splitter)
-        splitter.setSizes([250, 950])
+        splitter.setSizes([300, 1100])
 
         main_layout.addWidget(splitter)
 
@@ -150,9 +238,17 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        generate_action = QAction("生成 Wiki", self)
-        generate_action.triggered.connect(self._on_generate)
-        toolbar.addAction(generate_action)
+        generate_all_action = QAction("🚀 一键生成全部", self)
+        generate_all_action.setToolTip("生成所有类型的文档")
+        generate_all_action.triggered.connect(self._on_generate_all)
+        toolbar.addAction(generate_all_action)
+
+        generate_selected_action = QAction("📝 生成选中文档", self)
+        generate_selected_action.setToolTip("生成选中的文档类型")
+        generate_selected_action.triggered.connect(self._on_generate_selected)
+        toolbar.addAction(generate_selected_action)
+
+        toolbar.addSeparator()
 
         update_action = QAction("增量更新", self)
         update_action.triggered.connect(self._on_update)
@@ -176,6 +272,8 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.project_panel.project_selected.connect(self._on_project_selected)
         self.generation_progress.connect(self._on_progress_update)
+        self.doc_type_panel.generate_requested.connect(self._on_generate_doc_types)
+        self.doc_type_panel.generate_all_requested.connect(self._on_generate_all)
 
     def _load_last_project(self) -> None:
         config = self.settings.load_config()
@@ -261,22 +359,72 @@ class MainWindow(QMainWindow):
             <p>对标 Qoder Wiki 的 Python 实现</p>
             <p>支持:</p>
             <ul>
-                <li>自动生成架构文档</li>
+                <li>一键生成 10 种类型文档</li>
                 <li>Mermaid 图表生成</li>
                 <li>增量更新</li>
                 <li>Git 集成</li>
+                <li>智能问答</li>
             </ul>
             """
         )
 
-    def _on_generate(self) -> None:
+    def _on_generate_all(self) -> None:
         if not self._current_project:
             QMessageBox.warning(self, "警告", "请先选择一个项目")
             return
+        
+        self._start_generation(list(DocType))
 
+    def _on_generate_selected(self) -> None:
+        if not self._current_project:
+            QMessageBox.warning(self, "警告", "请先选择一个项目")
+            return
+        
+        selected = self.doc_type_panel.get_selected_doc_types()
+        if not selected:
+            QMessageBox.warning(self, "警告", "请至少选择一种文档类型")
+            return
+        
+        self._start_generation(selected)
+
+    def _on_generate_doc_types(self, doc_types: list[DocType]) -> None:
+        if not self._current_project:
+            QMessageBox.warning(self, "警告", "请先选择一个项目")
+            return
+        
+        self._start_generation(doc_types)
+
+    def _start_generation(self, doc_types: list[DocType]) -> None:
+        config = self.settings.load_config()
+        llm_config = config.default_llm
+        
+        self._generator_thread = DocGeneratorThread(
+            project=self._current_project,
+            doc_types=doc_types,
+            llm_config=llm_config,
+        )
+        
+        self._generator_thread.progress_updated.connect(self._on_progress_update)
+        self._generator_thread.generation_completed.connect(self._on_generation_completed)
+        self._generator_thread.stage_changed.connect(self._on_stage_changed)
+        
         self.generation_started.emit()
-        self.statusbar.showMessage("正在生成 Wiki...")
+        self.statusbar.showMessage("正在生成文档...")
         self.progress_panel.start_generation()
+        self.progress_panel.add_log("INFO", f"开始生成 {len(doc_types)} 种文档类型")
+        
+        self._generator_thread.start()
+
+    def _on_generation_completed(self, success: bool, message: str) -> None:
+        if success:
+            self.progress_panel.complete_generation()
+            self.statusbar.showMessage("文档生成完成")
+            self.generation_completed.emit()
+            QMessageBox.information(self, "完成", "文档生成完成！")
+        else:
+            self.progress_panel.error_generation(message)
+            self.statusbar.showMessage(f"生成失败: {message}")
+            QMessageBox.critical(self, "错误", f"文档生成失败: {message}")
 
     def _on_update(self) -> None:
         if not self._current_project:
@@ -294,6 +442,29 @@ class MainWindow(QMainWindow):
 
     def _on_progress_update(self, progress: int, message: str) -> None:
         self.progress_panel.update_progress(progress, message)
-        if progress >= 100:
-            self.generation_completed.emit()
-            self.statusbar.showMessage("Wiki 生成完成")
+
+    def _on_stage_changed(self, stage: str, status: str) -> None:
+        self.progress_panel.set_stage(stage, status)
+        if status == "running":
+            self.progress_panel.add_log("INFO", f"正在生成: {stage}")
+        elif status == "completed":
+            self.progress_panel.add_log("INFO", f"完成: {stage}")
+        elif status == "error":
+            self.progress_panel.add_log("ERROR", f"失败: {stage}")
+
+    def closeEvent(self, event):
+        if self._generator_thread and self._generator_thread.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "确认",
+                "文档生成正在进行中，确定要退出吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                event.ignore()
+                return
+            
+            self._generator_thread.cancel()
+            self._generator_thread.wait()
+        
+        event.accept()

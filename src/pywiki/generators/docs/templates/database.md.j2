@@ -1,0 +1,54 @@
+# {{ labels['database'] }}
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if er_diagram %}
+## E-R 图
+
+```mermaid
+{{ er_diagram }}
+```
+{% endif %}
+
+{% if tables %}
+## 表结构
+
+{% for table in tables %}
+### {{ table.name }}
+
+{% if table.description %}
+{{ table.description }}
+{% endif %}
+
+| 字段名 | 类型 | 约束 | 描述 |
+|--------|------|------|------|
+{% for column in table.columns %}
+| `{{ column.name }}` | `{{ column.type }}` | {{ column.constraints or '-' }} | {{ column.description or '-' }} |
+{% endfor %}
+
+{% if table.indexes %}
+**索引**:
+
+| 名称 | 字段 | 类型 |
+|------|------|------|
+{% for idx in table.indexes %}
+| {{ idx.name }} | {{ idx.columns | join(', ') }} | {{ idx.type }} |
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if relationships %}
+## 表关系
+
+| 主表 | 关系 | 从表 | 外键 |
+|------|------|------|------|
+{% for rel in relationships %}
+| {{ rel.primary_table }} | {{ rel.relation_type }} | {{ rel.foreign_table }} | {{ rel.foreign_key }} |
+{% endfor %}
+{% endif %}

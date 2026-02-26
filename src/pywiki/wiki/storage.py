@@ -19,8 +19,11 @@ class WikiStorage:
         language: Language = Language.ZH,
     ):
         self.output_dir = output_dir
-        self.language = language
-        self.language_dir = output_dir / language.value
+        if isinstance(language, str):
+            self.language = Language(language)
+        else:
+            self.language = language
+        self.language_dir = output_dir / self.language.value
         self.history_dir = output_dir / ".history"
         self.index_file = output_dir / ".index.json"
 

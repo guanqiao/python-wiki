@@ -1,0 +1,76 @@
+# 技术设计文档 (TSD)
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if design_decisions %}
+## {{ labels['design_decisions'] }}
+
+{% for decision in design_decisions %}
+### {{ decision.title }}
+
+**状态**: {{ decision.status }}  
+**日期**: {{ decision.date }}  
+**决策者**: {{ decision.decider or '-' }}
+
+**背景**:
+{{ decision.context }}
+
+**决策**:
+{{ decision.decision }}
+
+**影响**:
+{{ decision.consequences }}
+
+{% endfor %}
+{% endif %}
+
+{% if tech_debt %}
+## {{ labels['tech_debt'] }}
+
+| 项目 | 严重程度 | 位置 | 描述 | 建议 |
+|------|----------|------|------|------|
+{% for debt in tech_debt %}
+| {{ debt.name }} | {{ debt.severity }} | {{ debt.location }} | {{ debt.description }} | {{ debt.suggestion }} |
+{% endfor %}
+{% endif %}
+
+{% if patterns %}
+## 设计模式
+
+{% for pattern in patterns %}
+### {{ pattern.name }}
+
+**类型**: {{ pattern.type }}  
+**位置**: {{ pattern.location }}
+
+{% if pattern.description %}
+{{ pattern.description }}
+{% endif %}
+
+{% if pattern.participants %}
+**参与者**:
+{% for participant in pattern.participants %}
+- {{ participant }}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if implicit_knowledge %}
+## 隐式知识
+
+{% for knowledge in implicit_knowledge %}
+### {{ knowledge.title }}
+
+**类别**: {{ knowledge.category }}  
+**来源**: {{ knowledge.source }}
+
+{{ knowledge.content }}
+
+{% endfor %}
+{% endif %}

@@ -1,0 +1,87 @@
+# {{ labels['architecture'] }}
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if c4_context %}
+## 系统上下文图 (C4 Context)
+
+```mermaid
+{{ c4_context }}
+```
+{% endif %}
+
+{% if c4_container %}
+## 容器图 (C4 Container)
+
+```mermaid
+{{ c4_container }}
+```
+{% endif %}
+
+{% if c4_component %}
+## 组件图 (C4 Component)
+
+```mermaid
+{{ c4_component }}
+```
+{% endif %}
+
+{% if dependency_graph %}
+## 依赖关系图
+
+```mermaid
+{{ dependency_graph }}
+```
+{% endif %}
+
+{% if layers %}
+## 分层架构
+
+{% for layer in layers %}
+### {{ layer.name }}
+
+{{ layer.description }}
+
+{% if layer.components %}
+| 组件 | 职责 |
+|------|------|
+{% for comp in layer.components %}
+| {{ comp.name }} | {{ comp.responsibility }} |
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if metrics %}
+## 架构指标
+
+| 指标 | 分数 | 描述 |
+|------|------|------|
+{% for metric in metrics %}
+| {{ metric.name }} | {{ metric.score }} | {{ metric.description }} |
+{% endfor %}
+{% endif %}
+
+{% if recommendations %}
+## 改进建议
+
+{% for rec in recommendations %}
+### {{ rec.title }}
+
+**优先级**: {{ rec.priority }}  
+**描述**: {{ rec.description }}
+
+{% if rec.suggestions %}
+建议:
+{% for suggestion in rec.suggestions %}
+- {{ suggestion }}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}

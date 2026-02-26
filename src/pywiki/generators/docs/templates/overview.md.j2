@@ -1,0 +1,50 @@
+# {{ title }}
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if features %}
+## 功能特性
+
+{% for feature in features %}
+- {{ feature }}
+{%- endfor %}
+{% endif %}
+
+{% if tech_stack %}
+## {{ labels['tech_stack'] }}
+
+| 类别 | 技术 |
+|------|------|
+{% for category, techs in tech_stack.items() %}
+| {{ category }} | {{ techs | join(', ') }} |
+{% endfor %}
+{% endif %}
+
+{% if architecture_diagram %}
+## {{ labels['architecture'] }}
+
+```mermaid
+{{ architecture_diagram }}
+```
+{% endif %}
+
+{% if modules %}
+## {{ labels['modules'] }}
+
+| 模块 | 描述 |
+|------|------|
+{% for module in modules %}
+| [{{ module.name }}](modules/{{ module.path }}.md) | {{ module.description }} |
+{% endfor %}
+{% endif %}
+
+{% if metadata %}
+---
+**{{ labels['version'] }}**: {{ metadata.get('version', '-') }}  
+**{{ labels['license'] }}**: {{ metadata.get('license', '-') }}  
+**{{ labels['created_at'] }}**: {{ metadata.get('created_at', '-') }}
+{% endif %}

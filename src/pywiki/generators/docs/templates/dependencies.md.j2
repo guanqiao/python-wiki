@@ -1,0 +1,59 @@
+# {{ labels['dependencies'] }}
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if external %}
+## {{ labels['external_dependencies'] }}
+
+| 名称 | 版本 | 类别 | 描述 |
+|------|------|------|------|
+{% for dep in external %}
+| {{ dep.name }} | {{ dep.version or '-' }} | {{ dep.category }} | {{ dep.description }} |
+{% endfor %}
+{% endif %}
+
+{% if internal %}
+## {{ labels['internal_dependencies'] }}
+
+| 模块 | 依赖 | 类型 |
+|------|------|------|
+{% for dep in internal %}
+| {{ dep.source }} | {{ dep.target }} | {{ dep.type }} |
+{% endfor %}
+{% endif %}
+
+{% if circular %}
+## 循环依赖
+
+{% if circular | length > 0 %}
+⚠️ 发现 {{ circular | length }} 个循环依赖:
+
+{% for cycle in circular %}
+- {{ cycle | join(' → ') }}
+{% endfor %}
+{% else %}
+✅ 无循环依赖
+{% endif %}
+{% endif %}
+
+{% if hot_spots %}
+## 热点模块
+
+| 模块 | 被依赖次数 | 风险等级 |
+|------|-----------|----------|
+{% for spot in hot_spots %}
+| {{ spot.module }} | {{ spot.count }} | {{ spot.risk }} |
+{% endfor %}
+{% endif %}
+
+{% if recommendations %}
+## 建议
+
+{% for rec in recommendations %}
+- **{{ rec.type }}**: {{ rec.description }}
+{% endfor %}
+{% endif %}

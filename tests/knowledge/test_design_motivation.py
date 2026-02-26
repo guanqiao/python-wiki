@@ -560,11 +560,11 @@ class OldClass:
 
     def test_detect_pattern_in_class_with_name_match(self, extractor, project_path):
         """测试类名匹配模式检测"""
-        pattern = DESIGN_PATTERNS["singleton"]
+        pattern = DESIGN_PATTERNS["facade"]
 
         cls = ClassInfo(
-            name="DatabaseSingleton",
-            full_name="app.database.DatabaseSingleton",
+            name="DatabaseFacade",
+            full_name="app.database.DatabaseFacade",
         )
 
         result = extractor._detect_pattern_in_class(cls, pattern)
@@ -581,6 +581,7 @@ class OldClass:
             full_name="app.MyClass",
             methods=[
                 FunctionInfo(name="create_product", full_name="app.MyClass.create_product"),
+                FunctionInfo(name="factory_method", full_name="app.MyClass.factory_method"),
             ],
         )
 

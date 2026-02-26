@@ -108,6 +108,22 @@ class VectorStore:
         else:
             self._create_empty_store()
 
+    def _validate_index_integrity(self) -> bool:
+        """验证索引完整性"""
+        index_path = self._get_index_path()
+        docstore_path = self._get_docstore_path()
+        records_path = self._get_records_path()
+
+        if not all(p.exists() for p in [index_path, docstore_path, records_path]):
+            return False
+
+        try:
+            with open(records_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return "doc_ids" in data and "records" in data
+        except Exception:
+            return False
+
     def _create_empty_store(self) -> None:
         empty_doc = Document(page_content="", metadata={})
         self._vectorstore = FAISS.from_documents(

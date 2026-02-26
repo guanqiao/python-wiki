@@ -1,0 +1,102 @@
+# {{ module_name }}
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if classes %}
+## {{ labels['classes'] }}
+
+{% for cls in classes %}
+### `{{ cls.name }}`
+
+{% if cls.docstring %}
+{{ cls.docstring }}
+{% endif %}
+
+{% if cls.bases %}
+**{{ labels['inheritance'] }}**: `{% for base in cls.bases %}{{ base }}{% if not loop.last %}, {% endif %}{% endfor %}`
+{% endif %}
+
+{% if cls.properties %}
+#### {{ labels['properties'] }}
+
+| 名称 | 类型 | 可见性 |
+|------|------|--------|
+{% for prop in cls.properties %}
+| `{{ prop.name }}` | `{{ prop.type_hint or '-' }}` | {{ prop.visibility }} |
+{% endfor %}
+{% endif %}
+
+{% if cls.methods %}
+#### {{ labels['methods'] }}
+
+{% for method in cls.methods %}
+##### `{{ method.name }}({% for p in method.parameters %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %})`
+
+{% if method.docstring %}
+{{ method.docstring }}
+{% endif %}
+
+{% if method.parameters %}
+**{{ labels['parameters'] }}**:
+
+| 名称 | 类型 | 默认值 |
+|------|------|--------|
+{% for param in method.parameters %}
+| `{{ param.name }}` | `{{ param.type_hint or '-' }}` | `{{ param.default_value or '-' }}` |
+{% endfor %}
+{% endif %}
+
+{% if method.return_type %}
+**{{ labels['returns'] }}**: `{{ method.return_type }}`
+{% endif %}
+
+{% if method.raises %}
+**{{ labels['raises'] }}**: {% for exc in method.raises %}`{{ exc }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if functions %}
+## {{ labels['functions'] }}
+
+{% for func in functions %}
+### `{{ func.name }}({% for p in func.parameters %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %})`
+
+{% if func.docstring %}
+{{ func.docstring }}
+{% endif %}
+
+{% if func.parameters %}
+**{{ labels['parameters'] }}**:
+
+| 名称 | 类型 | 默认值 |
+|------|------|--------|
+{% for param in func.parameters %}
+| `{{ param.name }}` | `{{ param.type_hint or '-' }}` | `{{ param.default_value or '-' }}` |
+{% endfor %}
+{% endif %}
+
+{% if func.return_type %}
+**{{ labels['returns'] }}**: `{{ func.return_type }}`
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if imports %}
+## {{ labels['dependencies'] }}
+
+| 模块 | 类型 |
+|------|------|
+{% for imp in imports %}
+| `{{ imp.module }}` | {{ imp.type }} |
+{% endfor %}
+{% endif %}

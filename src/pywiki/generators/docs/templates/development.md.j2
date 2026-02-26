@@ -1,0 +1,88 @@
+# 开发指南
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if prerequisites %}
+## 前置条件
+
+{% for item in prerequisites %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if installation %}
+## 安装
+
+```bash
+{{ installation }}
+```
+{% endif %}
+
+{% if build %}
+## 构建
+
+{% for step in build %}
+### {{ step.name }}
+
+```bash
+{{ step.command }}
+```
+
+{% if step.description %}
+{{ step.description }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if testing %}
+## 测试
+
+{% for step in testing %}
+### {{ step.name }}
+
+```bash
+{{ step.command }}
+```
+
+{% if step.description %}
+{{ step.description }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if deployment %}
+## 部署
+
+{% for step in deployment %}
+### {{ step.name }}
+
+{% if step.description %}
+{{ step.description }}
+{% endif %}
+
+{% if step.commands %}
+```bash
+{% for cmd in step.commands %}
+{{ cmd }}
+{% endfor %}
+```
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if scripts %}
+## 常用命令
+
+| 命令 | 描述 |
+|------|------|
+{% for script in scripts %}
+| `{{ script.command }}` | {{ script.description }} |
+{% endfor %}
+{% endif %}
