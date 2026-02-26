@@ -8,6 +8,8 @@ from pywiki.gui.panels.preview_panel import PreviewPanel
 from pywiki.gui.panels.progress_panel import ProgressPanel
 from pywiki.gui.panels.qa_panel import QAPanel
 from pywiki.gui.panels.doc_type_panel import DocTypePanel
+from pywiki.gui.panels.insights_panel import InsightsPanel
+from pywiki.gui.panels.knowledge_panel import KnowledgePanel
 
 __all__ = [
     "ProjectPanel",
@@ -16,4 +18,6 @@ __all__ = [
     "ProgressPanel",
     "QAPanel",
     "DocTypePanel",
+    "InsightsPanel",
+    "KnowledgePanel",
 ]

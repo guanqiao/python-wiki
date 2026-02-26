@@ -663,12 +663,20 @@ class ArchitectureAgent(BaseAgent):
         recommendations = []
         
         for insight in insights:
-            recommendations.append({
-                "title": insight.title,
-                "description": insight.description,
-                "severity": insight.severity,
-                "suggestions": insight.suggestions,
-            })
+            if isinstance(insight, dict):
+                recommendations.append({
+                    "title": insight.get("title", ""),
+                    "description": insight.get("description", ""),
+                    "severity": insight.get("severity", "low"),
+                    "suggestions": insight.get("suggestions", []),
+                })
+            else:
+                recommendations.append({
+                    "title": insight.title,
+                    "description": insight.description,
+                    "severity": insight.severity,
+                    "suggestions": insight.suggestions,
+                })
         
         return recommendations
     

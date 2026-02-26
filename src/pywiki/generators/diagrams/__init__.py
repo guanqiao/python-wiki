@@ -24,6 +24,13 @@ from pywiki.generators.diagrams.c4_diagrams import (
     C4Component,
     C4Relationship,
 )
+from pywiki.generators.diagrams.dataflow import (
+    DataFlowDiagramGenerator,
+    DataFlowNodeType,
+    DataFlowNode,
+    DataFlow,
+    DataFlowDiagram,
+)
 
 __all__ = [
     "BaseDiagramGenerator",
@@ -47,4 +54,10 @@ __all__ = [
     "C4Container",
     "C4Component",
     "C4Relationship",
+    # Data Flow
+    "DataFlowDiagramGenerator",
+    "DataFlowNodeType",
+    "DataFlowNode",
+    "DataFlow",
+    "DataFlowDiagram",
 ]

@@ -1,412 +1,423 @@
 """
-多模型路由器
-智能选择最优的 LLM 模型
+模型分级选择器
+对标 Qoder 的模型分级功能
+支持 Lite/Efficient/Performance/Auto 四级模型选择
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
+
+
+class ModelTier(str, Enum):
+    """模型等级"""
+    LITE = "lite"               # 轻量级 - 快速响应
+    EFFICIENT = "efficient"     # 经济高效 - 平衡方案
+    PERFORMANCE = "performance" # 极致性能 - 深度理解
+    AUTO = "auto"               # 智能路由 - 自动选择
 
 
 class TaskType(str, Enum):
-    CODE_GENERATION = "code_generation"
-    CODE_ANALYSIS = "code_analysis"
-    DOCUMENTATION = "documentation"
-    SUMMARIZATION = "summarization"
-    TRANSLATION = "translation"
-    REASONING = "reasoning"
-    CREATIVE = "creative"
-    EMBEDDING = "embedding"
-
-
-class ModelProvider(str, Enum):
-    OPENAI = "openai"
-    AZURE = "azure"
-    ANTHROPIC = "anthropic"
-    CUSTOM = "custom"
+    """任务类型"""
+    CODE_COMPLETION = "code_completion"     # 代码补全
+    DOC_GENERATION = "doc_generation"       # 文档生成
+    CODE_REVIEW = "code_review"             # 代码审查
+    ARCHITECTURE_ANALYSIS = "architecture_analysis"  # 架构分析
+    QUEST_MODE = "quest_mode"               # Quest 模式
 
 
 @dataclass
 class ModelConfig:
     """模型配置"""
     name: str
-    provider: ModelProvider
-    endpoint: str
-    api_key: str
-    max_tokens: int = 4096
-    temperature: float = 0.7
-    cost_per_1k_tokens: float = 0.0
-    capabilities: list[TaskType] = field(default_factory=list)
-    priority: int = 0
-    is_default: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
+    tier: ModelTier
+    max_tokens: int
+    cost_per_1k_tokens: float
+    avg_response_time_ms: int
+    context_window: int
+    supports_streaming: bool = True
 
 
 @dataclass
-class RoutingDecision:
-    """路由决策"""
-    selected_model: str
-    provider: ModelProvider
-    reason: str
-    alternatives: list[str] = field(default_factory=list)
-    estimated_cost: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+class TaskComplexity:
+    """任务复杂度评估"""
+    code_size: int = 0          # 代码规模（行数）
+    file_count: int = 0         # 文件数量
+    dependency_depth: int = 0   # 依赖深度
+    reasoning_required: bool = False  # 是否需要推理
+    creativity_required: bool = False  # 是否需要创造性
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "selected_model": self.selected_model,
-            "provider": self.provider.value,
-            "reason": self.reason,
-            "alternatives": self.alternatives,
-            "estimated_cost": self.estimated_cost,
-            "timestamp": self.timestamp.isoformat(),
-        }
+
+class ModelRegistry:
+    """模型注册表"""
+
+    # 预定义的模型配置
+    MODELS = {
+        # Lite 级别
+        "gpt-3.5-turbo": ModelConfig(
+            name="gpt-3.5-turbo",
+            tier=ModelTier.LITE,
+            max_tokens=4096,
+            cost_per_1k_tokens=0.0015,
+            avg_response_time_ms=500,
+            context_window=16385,
+        ),
+        "claude-instant-1": ModelConfig(
+            name="claude-instant-1",
+            tier=ModelTier.LITE,
+            max_tokens=4096,
+            cost_per_1k_tokens=0.0016,
+            avg_response_time_ms=400,
+            context_window=100000,
+        ),
+        # Efficient 级别
+        "gpt-4": ModelConfig(
+            name="gpt-4",
+            tier=ModelTier.EFFICIENT,
+            max_tokens=8192,
+            cost_per_1k_tokens=0.03,
+            avg_response_time_ms=1500,
+            context_window=8192,
+        ),
+        "claude-3-sonnet": ModelConfig(
+            name="claude-3-sonnet",
+            tier=ModelTier.EFFICIENT,
+            max_tokens=4096,
+            cost_per_1k_tokens=0.003,
+            avg_response_time_ms=800,
+            context_window=200000,
+        ),
+        # Performance 级别
+        "gpt-4-turbo": ModelConfig(
+            name="gpt-4-turbo",
+            tier=ModelTier.PERFORMANCE,
+            max_tokens=4096,
+            cost_per_1k_tokens=0.01,
+            avg_response_time_ms=2000,
+            context_window=128000,
+        ),
+        "claude-3-opus": ModelConfig(
+            name="claude-3-opus",
+            tier=ModelTier.PERFORMANCE,
+            max_tokens=4096,
+            cost_per_1k_tokens=0.015,
+            avg_response_time_ms=2500,
+            context_window=200000,
+        ),
+    }
+
+    @classmethod
+    def get_models_by_tier(cls, tier: ModelTier) -> list[ModelConfig]:
+        """获取指定等级的所有模型"""
+        return [m for m in cls.MODELS.values() if m.tier == tier]
+
+    @classmethod
+    def get_model(cls, name: str) -> Optional[ModelConfig]:
+        """获取模型配置"""
+        return cls.MODELS.get(name)
 
 
 class ModelRouter:
     """
-    多模型路由器
-    根据任务类型、成本和性能智能选择模型
+    模型路由器
+    
+    根据任务类型和复杂度自动选择最适合的模型
+    对标 Qoder 的智能路由功能
     """
 
-    DEFAULT_MODELS: dict[str, ModelConfig] = {
-        "gpt-4": ModelConfig(
-            name="gpt-4",
-            provider=ModelProvider.OPENAI,
-            endpoint="https://api.openai.com/v1",
-            api_key="",
-            max_tokens=8192,
-            cost_per_1k_tokens=0.03,
-            capabilities=[
-                TaskType.CODE_GENERATION,
-                TaskType.CODE_ANALYSIS,
-                TaskType.REASONING,
-                TaskType.DOCUMENTATION,
-            ],
-            priority=10,
-            is_default=True,
-        ),
-        "gpt-3.5-turbo": ModelConfig(
-            name="gpt-3.5-turbo",
-            provider=ModelProvider.OPENAI,
-            endpoint="https://api.openai.com/v1",
-            api_key="",
-            max_tokens=4096,
-            cost_per_1k_tokens=0.002,
-            capabilities=[
-                TaskType.SUMMARIZATION,
-                TaskType.TRANSLATION,
-                TaskType.DOCUMENTATION,
-            ],
-            priority=5,
-        ),
-        "gpt-4-turbo": ModelConfig(
-            name="gpt-4-turbo",
-            provider=ModelProvider.OPENAI,
-            endpoint="https://api.openai.com/v1",
-            api_key="",
-            max_tokens=128000,
-            cost_per_1k_tokens=0.01,
-            capabilities=[
-                TaskType.CODE_GENERATION,
-                TaskType.CODE_ANALYSIS,
-                TaskType.REASONING,
-                TaskType.DOCUMENTATION,
-                TaskType.SUMMARIZATION,
-            ],
-            priority=8,
-        ),
-        "claude-3-opus": ModelConfig(
-            name="claude-3-opus",
-            provider=ModelProvider.ANTHROPIC,
-            endpoint="https://api.anthropic.com/v1",
-            api_key="",
-            max_tokens=200000,
-            cost_per_1k_tokens=0.015,
-            capabilities=[
-                TaskType.CODE_GENERATION,
-                TaskType.CODE_ANALYSIS,
-                TaskType.REASONING,
-                TaskType.CREATIVE,
-            ],
-            priority=9,
-        ),
-        "claude-3-sonnet": ModelConfig(
-            name="claude-3-sonnet",
-            provider=ModelProvider.ANTHROPIC,
-            endpoint="https://api.anthropic.com/v1",
-            api_key="",
-            max_tokens=200000,
-            cost_per_1k_tokens=0.003,
-            capabilities=[
-                TaskType.CODE_ANALYSIS,
-                TaskType.DOCUMENTATION,
-                TaskType.SUMMARIZATION,
-            ],
-            priority=7,
-        ),
+    # 任务类型默认等级映射
+    TASK_TIER_MAPPING = {
+        TaskType.CODE_COMPLETION: ModelTier.LITE,
+        TaskType.DOC_GENERATION: ModelTier.EFFICIENT,
+        TaskType.CODE_REVIEW: ModelTier.EFFICIENT,
+        TaskType.ARCHITECTURE_ANALYSIS: ModelTier.PERFORMANCE,
+        TaskType.QUEST_MODE: ModelTier.PERFORMANCE,
     }
 
-    TASK_MODEL_PREFERENCES: dict[TaskType, list[str]] = {
-        TaskType.CODE_GENERATION: ["gpt-4", "claude-3-opus", "gpt-4-turbo"],
-        TaskType.CODE_ANALYSIS: ["gpt-4-turbo", "claude-3-sonnet", "gpt-4"],
-        TaskType.DOCUMENTATION: ["gpt-4-turbo", "claude-3-sonnet", "gpt-3.5-turbo"],
-        TaskType.SUMMARIZATION: ["gpt-3.5-turbo", "claude-3-sonnet", "gpt-4-turbo"],
-        TaskType.TRANSLATION: ["gpt-3.5-turbo", "gpt-4-turbo"],
-        TaskType.REASONING: ["gpt-4", "claude-3-opus", "gpt-4-turbo"],
-        TaskType.CREATIVE: ["claude-3-opus", "gpt-4", "claude-3-sonnet"],
-        TaskType.EMBEDDING: [],
+    # 复杂度阈值
+    COMPLEXITY_THRESHOLDS = {
+        "small": {"lines": 100, "files": 5},
+        "medium": {"lines": 1000, "files": 20},
+        "large": {"lines": 10000, "files": 100},
     }
 
-    def __init__(
-        self,
-        models: Optional[dict[str, ModelConfig]] = None,
-        cost_optimization: bool = True,
-        fallback_enabled: bool = True,
-    ):
-        self.models = models or self.DEFAULT_MODELS.copy()
-        self.cost_optimization = cost_optimization
-        self.fallback_enabled = fallback_enabled
+    def __init__(self, default_tier: ModelTier = ModelTier.AUTO):
+        self.default_tier = default_tier
+        self.usage_stats = {}  # 模型使用统计
 
-        self._usage_stats: dict[str, dict[str, Any]] = {
-            name: {"calls": 0, "tokens": 0, "errors": 0}
-            for name in self.models
-        }
-
-    def register_model(self, config: ModelConfig) -> None:
-        """注册模型"""
-        self.models[config.name] = config
-        self._usage_stats[config.name] = {"calls": 0, "tokens": 0, "errors": 0}
-
-    def unregister_model(self, name: str) -> bool:
-        """注销模型"""
-        if name in self.models:
-            del self.models[name]
-            del self._usage_stats[name]
-            return True
-        return False
-
-    def route(
+    def select_model(
         self,
         task_type: TaskType,
-        prompt_length: int = 0,
-        prefer_speed: bool = False,
-        prefer_quality: bool = False,
-        max_cost: Optional[float] = None,
-    ) -> RoutingDecision:
+        complexity: Optional[TaskComplexity] = None,
+        tier: Optional[ModelTier] = None,
+        preferred_provider: Optional[str] = None,
+    ) -> str:
         """
-        路由到最优模型
-
+        选择最适合的模型
+        
         Args:
             task_type: 任务类型
-            prompt_length: 提示词长度
-            prefer_speed: 优先速度
-            prefer_quality: 优先质量
-            max_cost: 最大成本限制
-
+            complexity: 任务复杂度
+            tier: 指定模型等级（如果为 AUTO 或 None 则自动选择）
+            preferred_provider: 优先的提供商（openai/anthropic）
+            
         Returns:
-            路由决策
+            选中的模型名称
         """
-        candidates = self._get_candidates(task_type)
-
+        # 确定模型等级
+        selected_tier = self._determine_tier(task_type, complexity, tier)
+        
+        # 获取该等级的所有模型
+        candidates = ModelRegistry.get_models_by_tier(selected_tier)
+        
         if not candidates:
-            default = self._get_default_model()
-            if default:
-                return RoutingDecision(
-                    selected_model=default.name,
-                    provider=default.provider,
-                    reason="使用默认模型（无匹配模型）",
-                )
-            raise ValueError("没有可用的模型")
+            # 回退到 Efficient 级别
+            candidates = ModelRegistry.get_models_by_tier(ModelTier.EFFICIENT)
+        
+        # 根据偏好提供商筛选
+        if preferred_provider:
+            filtered = [m for m in candidates if preferred_provider in m.name]
+            if filtered:
+                candidates = filtered
+        
+        # 选择响应时间最短的模型
+        selected = min(candidates, key=lambda m: m.avg_response_time_ms)
+        
+        # 记录使用统计
+        self._record_usage(selected.name, task_type)
+        
+        return selected.name
 
-        candidates = self._filter_by_cost(candidates, max_cost)
-
-        if prefer_quality:
-            candidates = self._sort_by_quality(candidates)
-        elif prefer_speed or self.cost_optimization:
-            candidates = self._sort_by_cost(candidates)
-        else:
-            candidates = self._sort_by_priority(candidates)
-
-        selected = candidates[0]
-        alternatives = [m.name for m in candidates[1:4]]
-
-        estimated_cost = self._estimate_cost(selected, prompt_length)
-
-        return RoutingDecision(
-            selected_model=selected.name,
-            provider=selected.provider,
-            reason=self._get_reason(selected, task_type, prefer_quality, prefer_speed),
-            alternatives=alternatives,
-            estimated_cost=estimated_cost,
-        )
-
-    def route_by_content(
+    def _determine_tier(
         self,
-        content: str,
-        task_type: Optional[TaskType] = None,
-    ) -> RoutingDecision:
-        """
-        根据内容自动路由
-
-        Args:
-            content: 内容
-            task_type: 任务类型（可选，自动检测）
-
-        Returns:
-            路由决策
-        """
-        if task_type is None:
-            task_type = self._detect_task_type(content)
-
-        prompt_length = len(content)
-        prefer_quality = self._needs_quality(content)
-        prefer_speed = len(content) < 500
-
-        return self.route(
-            task_type=task_type,
-            prompt_length=prompt_length,
-            prefer_speed=prefer_speed,
-            prefer_quality=prefer_quality,
-        )
-
-    def _get_candidates(self, task_type: TaskType) -> list[ModelConfig]:
-        """获取候选模型"""
-        preferences = self.TASK_MODEL_PREFERENCES.get(task_type, [])
-
-        candidates = []
-        for name in preferences:
-            if name in self.models:
-                config = self.models[name]
-                if task_type in config.capabilities:
-                    candidates.append(config)
-
-        if not candidates:
-            for config in self.models.values():
-                if task_type in config.capabilities:
-                    candidates.append(config)
-
-        return candidates
-
-    def _filter_by_cost(
-        self,
-        candidates: list[ModelConfig],
-        max_cost: Optional[float],
-    ) -> list[ModelConfig]:
-        """按成本过滤"""
-        if max_cost is None:
-            return candidates
-
-        return [
-            c for c in candidates
-            if c.cost_per_1k_tokens <= max_cost
-        ]
-
-    def _sort_by_quality(self, candidates: list[ModelConfig]) -> list[ModelConfig]:
-        """按质量排序"""
-        return sorted(candidates, key=lambda x: x.priority, reverse=True)
-
-    def _sort_by_cost(self, candidates: list[ModelConfig]) -> list[ModelConfig]:
-        """按成本排序"""
-        return sorted(candidates, key=lambda x: x.cost_per_1k_tokens)
-
-    def _sort_by_priority(self, candidates: list[ModelConfig]) -> list[ModelConfig]:
-        """按优先级排序"""
-        return sorted(candidates, key=lambda x: x.priority, reverse=True)
-
-    def _get_default_model(self) -> Optional[ModelConfig]:
-        """获取默认模型"""
-        for config in self.models.values():
-            if config.is_default:
-                return config
-
-        if self.models:
-            return next(iter(self.models.values()))
-
-        return None
-
-    def _estimate_cost(self, config: ModelConfig, prompt_length: int) -> float:
-        """估算成本"""
-        estimated_tokens = prompt_length / 4
-        return (estimated_tokens / 1000) * config.cost_per_1k_tokens
-
-    def _get_reason(
-        self,
-        model: ModelConfig,
         task_type: TaskType,
-        prefer_quality: bool,
-        prefer_speed: bool,
-    ) -> str:
-        """获取选择原因"""
-        reasons = []
+        complexity: Optional[TaskComplexity],
+        tier: Optional[ModelTier],
+    ) -> ModelTier:
+        """确定模型等级"""
+        # 如果指定了具体等级（非 AUTO），直接使用
+        if tier and tier != ModelTier.AUTO:
+            return tier
+        
+        # 根据任务类型获取默认等级
+        base_tier = self.TASK_TIER_MAPPING.get(task_type, ModelTier.EFFICIENT)
+        
+        # 根据复杂度调整
+        if complexity:
+            adjusted_tier = self._adjust_tier_by_complexity(base_tier, complexity)
+            return adjusted_tier
+        
+        return base_tier
 
-        if prefer_quality:
-            reasons.append(f"优先质量，选择高优先级模型")
-        elif prefer_speed:
-            reasons.append("优先速度")
+    def _adjust_tier_by_complexity(
+        self,
+        base_tier: ModelTier,
+        complexity: TaskComplexity,
+    ) -> ModelTier:
+        """根据复杂度调整等级"""
+        # 计算复杂度分数
+        score = 0
+        
+        if complexity.code_size > self.COMPLEXITY_THRESHOLDS["large"]["lines"]:
+            score += 3
+        elif complexity.code_size > self.COMPLEXITY_THRESHOLDS["medium"]["lines"]:
+            score += 2
+        elif complexity.code_size > self.COMPLEXITY_THRESHOLDS["small"]["lines"]:
+            score += 1
+        
+        if complexity.file_count > self.COMPLEXITY_THRESHOLDS["large"]["files"]:
+            score += 3
+        elif complexity.file_count > self.COMPLEXITY_THRESHOLDS["medium"]["files"]:
+            score += 2
+        elif complexity.file_count > self.COMPLEXITY_THRESHOLDS["small"]["files"]:
+            score += 1
+        
+        if complexity.dependency_depth > 3:
+            score += 2
+        
+        if complexity.reasoning_required:
+            score += 2
+        
+        if complexity.creativity_required:
+            score += 1
+        
+        # 根据分数调整等级
+        tier_levels = [ModelTier.LITE, ModelTier.EFFICIENT, ModelTier.PERFORMANCE]
+        base_index = tier_levels.index(base_tier)
+        
+        # 分数越高，等级越高
+        if score >= 6 and base_index < 2:
+            return tier_levels[min(base_index + 2, 2)]
+        elif score >= 3 and base_index < 2:
+            return tier_levels[min(base_index + 1, 2)]
+        
+        return base_tier
 
-        if self.cost_optimization:
-            reasons.append("成本优化")
+    def _record_usage(self, model_name: str, task_type: TaskType):
+        """记录模型使用统计"""
+        key = f"{model_name}:{task_type.value}"
+        self.usage_stats[key] = self.usage_stats.get(key, 0) + 1
 
-        reasons.append(f"适合 {task_type.value} 任务")
+    def get_usage_stats(self) -> dict[str, int]:
+        """获取使用统计"""
+        return self.usage_stats.copy()
 
-        return "；".join(reasons)
-
-    def _detect_task_type(self, content: str) -> TaskType:
-        """检测任务类型"""
-        content_lower = content.lower()
-
-        code_keywords = ["def ", "class ", "function", "import ", "code", "implement"]
-        if any(kw in content_lower for kw in code_keywords):
-            return TaskType.CODE_GENERATION
-
-        doc_keywords = ["document", "文档", "readme", "说明", "guide"]
-        if any(kw in content_lower for kw in doc_keywords):
-            return TaskType.DOCUMENTATION
-
-        summary_keywords = ["summarize", "总结", "brief", "overview"]
-        if any(kw in content_lower for kw in summary_keywords):
-            return TaskType.SUMMARIZATION
-
-        return TaskType.REASONING
-
-    def _needs_quality(self, content: str) -> bool:
-        """判断是否需要高质量"""
-        quality_indicators = [
-            "important", "critical", "production",
-            "重要", "关键", "生产",
-        ]
-        return any(ind in content.lower() for ind in quality_indicators)
-
-    def record_usage(
+    def estimate_cost(
         self,
         model_name: str,
-        tokens: int,
-        success: bool = True,
-    ) -> None:
-        """记录使用情况"""
-        if model_name in self._usage_stats:
-            self._usage_stats[model_name]["calls"] += 1
-            self._usage_stats[model_name]["tokens"] += tokens
-            if not success:
-                self._usage_stats[model_name]["errors"] += 1
+        input_tokens: int,
+        output_tokens: int,
+    ) -> float:
+        """
+        估算调用成本
+        
+        Args:
+            model_name: 模型名称
+            input_tokens: 输入 token 数
+            output_tokens: 输出 token 数
+            
+        Returns:
+            预估成本（美元）
+        """
+        model = ModelRegistry.get_model(model_name)
+        if not model:
+            return 0.0
+        
+        # 大多数模型输入输出同价，这里简化计算
+        total_tokens = input_tokens + output_tokens
+        cost = (total_tokens / 1000) * model.cost_per_1k_tokens
+        
+        return round(cost, 4)
 
-    def get_usage_stats(self) -> dict[str, Any]:
-        """获取使用统计"""
-        return self._usage_stats.copy()
+    def get_model_info(self, model_name: str) -> Optional[dict]:
+        """获取模型信息"""
+        model = ModelRegistry.get_model(model_name)
+        if not model:
+            return None
+        
+        return {
+            "name": model.name,
+            "tier": model.tier.value,
+            "max_tokens": model.max_tokens,
+            "cost_per_1k_tokens": model.cost_per_1k_tokens,
+            "avg_response_time_ms": model.avg_response_time_ms,
+            "context_window": model.context_window,
+            "supports_streaming": model.supports_streaming,
+        }
 
-    def get_model_config(self, name: str) -> Optional[ModelConfig]:
-        """获取模型配置"""
-        return self.models.get(name)
 
-    def list_models(self) -> list[str]:
-        """列出所有模型"""
-        return list(self.models.keys())
+class ContextCompressor:
+    """
+    上下文压缩器
+    
+    智能压缩上下文，减少 Token 消耗
+    对标 Qoder 的上下文智能压缩功能
+    """
 
-    def get_models_by_capability(self, task_type: TaskType) -> list[str]:
-        """获取具有特定能力的模型"""
-        return [
-            name for name, config in self.models.items()
-            if task_type in config.capabilities
+    def __init__(self, max_tokens: int = 4000):
+        self.max_tokens = max_tokens
+        # 平均每个 token 约 4 个字符（英文）
+        self.chars_per_token = 4
+
+    def compress(self, context: str, strategy: str = "smart") -> str:
+        """
+        压缩上下文
+        
+        Args:
+            context: 原始上下文
+            strategy: 压缩策略（smart/remove_comments/summarize）
+            
+        Returns:
+            压缩后的上下文
+        """
+        estimated_tokens = len(context) / self.chars_per_token
+        
+        if estimated_tokens <= self.max_tokens:
+            return context
+        
+        if strategy == "smart":
+            return self._smart_compress(context)
+        elif strategy == "remove_comments":
+            return self._remove_comments(context)
+        elif strategy == "summarize":
+            return self._summarize(context)
+        else:
+            return self._truncate(context)
+
+    def _smart_compress(self, context: str) -> str:
+        """智能压缩 - 保留关键信息"""
+        lines = context.split("\n")
+        
+        # 保留的关键模式
+        important_patterns = [
+            "def ",
+            "class ",
+            "import ",
+            "from ",
+            '@',
+            '"""',
+            "'''",
         ]
+        
+        compressed_lines = []
+        for line in lines:
+            # 保留重要行
+            if any(pattern in line for pattern in important_patterns):
+                compressed_lines.append(line)
+            # 跳过空白行和纯注释
+            elif line.strip() and not line.strip().startswith("#"):
+                compressed_lines.append(line)
+        
+        result = "\n".join(compressed_lines)
+        
+        # 如果还是太长，截断
+        if len(result) / self.chars_per_token > self.max_tokens:
+            return self._truncate(result)
+        
+        return result
+
+    def _remove_comments(self, context: str) -> str:
+        """移除注释"""
+        import re
+        
+        # 移除单行注释
+        context = re.sub(r'#.*$', '', context, flags=re.MULTILINE)
+        # 移除多行注释（简化版）
+        context = re.sub(r'"""[\s\S]*?"""', '', context)
+        context = re.sub(r"'''[\s\S]*?'''", '', context)
+        
+        return context.strip()
+
+    def _summarize(self, context: str) -> str:
+        """生成摘要（简化版）"""
+        lines = context.split("\n")
+        
+        # 提取关键信息
+        summary_lines = []
+        
+        # 添加文件头信息
+        if lines:
+            summary_lines.append(lines[0])
+        
+        # 提取类和方法定义
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("class ") or stripped.startswith("def "):
+                summary_lines.append(line)
+        
+        return "\n".join(summary_lines) if summary_lines else self._truncate(context)
+
+    def _truncate(self, context: str) -> str:
+        """简单截断"""
+        max_chars = int(self.max_tokens * self.chars_per_token)
+        
+        if len(context) <= max_chars:
+            return context
+        
+        # 保留开头和结尾，中间用省略号
+        head_len = max_chars // 2
+        tail_len = max_chars // 2 - 100  # 为省略号预留空间
+        
+        return context[:head_len] + "\n... [内容已截断] ...\n" + context[-tail_len:]

@@ -18,6 +18,7 @@ def project_config(tmp_path: Path) -> ProjectConfig:
         name="test_project",
         path=tmp_path,
         description="Test project for unit tests",
+        llm=LLMConfig(api_key="test-key"),
     )
 
 
@@ -45,10 +46,15 @@ def wiki_manager(
     llm_config: LLMConfig,
     wiki_config: WikiConfig,
 ) -> WikiManager:
+    from pywiki.llm.client import LLMClient
+    llm_client = LLMClient(
+        api_key=llm_config.api_key.get_secret_value(),
+        endpoint=llm_config.endpoint,
+        model=llm_config.model,
+    )
     return WikiManager(
         project=project_config,
-        llm_config=llm_config,
-        wiki_config=wiki_config,
+        llm_client=llm_client,
     )
 
 
@@ -186,12 +192,19 @@ class TestWikiManagerIntegration:
         project = ProjectConfig(
             name="integration_test",
             path=tmp_path,
+            llm=LLMConfig(api_key="test-key"),
+        )
+
+        from pywiki.llm.client import LLMClient
+        llm_client = LLMClient(
+            api_key=llm_config.api_key.get_secret_value(),
+            endpoint=llm_config.endpoint,
+            model=llm_config.model,
         )
 
         manager = WikiManager(
             project=project,
-            llm_config=llm_config,
-            wiki_config=wiki_config,
+            llm_client=llm_client,
         )
 
         with patch.object(

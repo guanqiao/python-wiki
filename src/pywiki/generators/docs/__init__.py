@@ -14,6 +14,8 @@ from pywiki.generators.docs.config_generator import ConfigGenerator
 from pywiki.generators.docs.development_generator import DevelopmentGenerator
 from pywiki.generators.docs.database_generator import DatabaseGenerator
 from pywiki.generators.docs.tsd_generator import TSDGenerator
+from pywiki.generators.docs.adr_generator import ADRGenerator
+from pywiki.generators.docs.quest_generator import QuestDesignDocGenerator
 
 __all__ = [
     "BaseDocGenerator",
@@ -28,4 +30,6 @@ __all__ = [
     "DevelopmentGenerator",
     "DatabaseGenerator",
     "TSDGenerator",
+    "ADRGenerator",
+    "QuestDesignDocGenerator",
 ]

@@ -206,6 +206,7 @@ class TestArchitectureAgent:
         result = await agent.execute(context)
         
         assert result.success is True
+        assert "overall_score" in result.data or result.message != ""
 
 
 class TestMultilangAgent:

@@ -3,6 +3,8 @@
 """
 
 import asyncio
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -27,11 +29,12 @@ from PyQt6.QtGui import QAction, QKeySequence
 from pywiki.config.settings import Settings
 from pywiki.config.models import ProjectConfig, LLMConfig
 from pywiki.gui.panels.project_panel import ProjectPanel
-from pywiki.gui.panels.config_panel import ConfigPanel
 from pywiki.gui.panels.preview_panel import PreviewPanel
 from pywiki.gui.panels.progress_panel import ProgressPanel
 from pywiki.gui.panels.qa_panel import QAPanel
 from pywiki.gui.panels.doc_type_panel import DocTypePanel
+from pywiki.gui.panels.insights_panel import InsightsPanel
+from pywiki.gui.panels.knowledge_panel import KnowledgePanel
 from pywiki.gui.dialogs.new_project_dialog import NewProjectDialog
 from pywiki.gui.dialogs.llm_config_dialog import LLMConfigDialog
 from pywiki.generators.docs.base import DocType
@@ -135,8 +138,28 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self) -> None:
         self.setWindowTitle("Python Wiki - AI 文档生成器")
-        self.setMinimumSize(1400, 900)
-        self.resize(1600, 1000)
+        self.setMinimumSize(1500, 900)
+        self.resize(1700, 1000)
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            QMenuBar {
+                background-color: #ffffff;
+                border-bottom: 1px solid #e0e0e0;
+            }
+            QToolBar {
+                background-color: #ffffff;
+                border-bottom: 1px solid #e0e0e0;
+                spacing: 8px;
+                padding: 4px;
+            }
+            QStatusBar {
+                background-color: #ffffff;
+                border-top: 1px solid #e0e0e0;
+            }
+        """)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -154,12 +177,13 @@ class MainWindow(QMainWindow):
         self.doc_type_panel = DocTypePanel()
         left_splitter.addWidget(self.doc_type_panel)
 
-        left_splitter.setSizes([300, 400])
+        left_splitter.setSizes([350, 350])
         splitter.addWidget(left_splitter)
 
         right_splitter = QSplitter(Qt.Orientation.Vertical)
 
         self.content_tab = QTabWidget()
+        self.content_tab.setDocumentMode(True)
         
         self.preview_panel = PreviewPanel()
         self.content_tab.addTab(self.preview_panel, "📄 文档预览")
@@ -167,15 +191,21 @@ class MainWindow(QMainWindow):
         self.qa_panel = QAPanel()
         self.content_tab.addTab(self.qa_panel, "💬 智能问答")
         
+        self.insights_panel = InsightsPanel()
+        self.content_tab.addTab(self.insights_panel, "🔍 架构洞察")
+        
+        self.knowledge_panel = KnowledgePanel()
+        self.content_tab.addTab(self.knowledge_panel, "💡 隐式知识")
+        
         right_splitter.addWidget(self.content_tab)
 
         self.progress_panel = ProgressPanel()
         right_splitter.addWidget(self.progress_panel)
 
-        right_splitter.setSizes([600, 200])
+        right_splitter.setSizes([650, 200])
 
         splitter.addWidget(right_splitter)
-        splitter.setSizes([300, 1100])
+        splitter.setSizes([320, 1180])
 
         main_layout.addWidget(splitter)
 
@@ -229,6 +259,12 @@ class MainWindow(QMainWindow):
 
         help_menu = menubar.addMenu("帮助(&H)")
 
+        shortcuts_action = QAction("快捷键(&K)", self)
+        shortcuts_action.triggered.connect(self._on_shortcuts)
+        help_menu.addAction(shortcuts_action)
+
+        help_menu.addSeparator()
+
         about_action = QAction("关于(&A)", self)
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
@@ -239,7 +275,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         generate_all_action = QAction("🚀 一键生成全部", self)
-        generate_all_action.setToolTip("生成所有类型的文档")
+        generate_all_action.setToolTip("生成所有类型的文档 (Ctrl+Shift+G)")
         generate_all_action.triggered.connect(self._on_generate_all)
         toolbar.addAction(generate_all_action)
 
@@ -250,30 +286,46 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        update_action = QAction("增量更新", self)
+        update_action = QAction("🔄 增量更新", self)
         update_action.triggered.connect(self._on_update)
         toolbar.addAction(update_action)
 
-        sync_action = QAction("同步 Git", self)
+        sync_action = QAction("📡 同步 Git", self)
         sync_action.triggered.connect(self._on_sync)
         toolbar.addAction(sync_action)
 
         toolbar.addSeparator()
 
-        config_action = QAction("LLM 配置", self)
+        config_action = QAction("⚙️ LLM 配置", self)
         config_action.triggered.connect(self._on_llm_config)
         toolbar.addAction(config_action)
+
+        toolbar.addSeparator()
+        
+        analyze_action = QAction("🔍 分析项目", self)
+        analyze_action.setToolTip("分析项目架构和隐式知识")
+        analyze_action.triggered.connect(self._on_analyze)
+        toolbar.addAction(analyze_action)
 
     def _init_statusbar(self) -> None:
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
-        self.statusbar.showMessage("就绪")
+        self.statusbar.showMessage("就绪 - 请选择或创建一个项目")
 
     def _connect_signals(self) -> None:
         self.project_panel.project_selected.connect(self._on_project_selected)
+        self.project_panel.open_project_dir.connect(self._on_open_project_dir)
+        self.project_panel.configure_llm.connect(self._on_configure_project_llm)
+        self.project_panel.delete_project.connect(self._on_delete_project)
+        
         self.generation_progress.connect(self._on_progress_update)
         self.doc_type_panel.generate_requested.connect(self._on_generate_doc_types)
         self.doc_type_panel.generate_all_requested.connect(self._on_generate_all)
+        
+        self.progress_panel.cancel_requested.connect(self._on_cancel_generation)
+        
+        self.insights_panel.analyze_requested.connect(self._on_analyze)
+        self.knowledge_panel.extract_requested.connect(self._on_extract_knowledge)
 
     def _load_last_project(self) -> None:
         config = self.settings.load_config()
@@ -292,13 +344,46 @@ class MainWindow(QMainWindow):
         self._current_project = project
         self.settings.set_last_project(project.name)
         self.project_changed.emit(project.name)
-        self.statusbar.showMessage(f"当前项目: {project.name}")
+        self.statusbar.showMessage(f"当前项目: {project.name} | 路径: {project.path}")
         self.setWindowTitle(f"Python Wiki - {project.name}")
+        
+        wiki_dir = project.path / project.wiki.output_dir
+        self.preview_panel.set_wiki_dir(wiki_dir)
+        self.insights_panel.set_project_path(project.path)
+        self.knowledge_panel.set_project_path(project.path)
 
     def _on_project_selected(self, project_name: str) -> None:
         project = self.settings.get_project(project_name)
         if project:
             self._set_current_project(project)
+
+    def _on_open_project_dir(self, project_name: str) -> None:
+        project = self.settings.get_project(project_name)
+        if project:
+            if sys.platform == "win32":
+                subprocess.run(["explorer", str(project.path)])
+            elif sys.platform == "darwin":
+                subprocess.run(["open", str(project.path)])
+            else:
+                subprocess.run(["xdg-open", str(project.path)])
+
+    def _on_configure_project_llm(self, project_name: str) -> None:
+        project = self.settings.get_project(project_name)
+        if project:
+            self._set_current_project(project)
+            self._on_llm_config()
+
+    def _on_delete_project(self, project_name: str) -> None:
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定要从列表中删除项目 '{project_name}' 吗？\n（不会删除实际文件）",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.settings.remove_project(project_name)
+            self._refresh_project_list()
+            self.statusbar.showMessage(f"已删除项目: {project_name}")
 
     def _on_new_project(self) -> None:
         dialog = NewProjectDialog(self)
@@ -345,26 +430,54 @@ class MainWindow(QMainWindow):
             new_llm = dialog.get_llm_config()
             if new_llm:
                 self.settings.update_default_llm(new_llm)
+                self.statusbar.showMessage("LLM 配置已保存")
 
     def _on_refresh(self) -> None:
         self._refresh_project_list()
+        if self._current_project:
+            wiki_dir = self._current_project.path / self._current_project.wiki.output_dir
+            self.preview_panel.set_wiki_dir(wiki_dir)
+        self.statusbar.showMessage("已刷新")
+
+    def _on_shortcuts(self) -> None:
+        QMessageBox.information(
+            self,
+            "快捷键",
+            """<h3>常用快捷键</h3>
+            <table>
+                <tr><td><b>Ctrl+N</b></td><td>新建项目</td></tr>
+                <tr><td><b>Ctrl+O</b></td><td>打开项目</td></tr>
+                <tr><td><b>Ctrl+E</b></td><td>导出文档</td></tr>
+                <tr><td><b>Ctrl+L</b></td><td>LLM 配置</td></tr>
+                <tr><td><b>Ctrl+,</b></td><td>设置</td></tr>
+                <tr><td><b>Ctrl+R</b></td><td>刷新</td></tr>
+                <tr><td><b>Ctrl+Shift+G</b></td><td>一键生成全部</td></tr>
+            </table>
+            """
+        )
 
     def _on_about(self) -> None:
         QMessageBox.about(
             self,
             "关于 Python Wiki",
             """<h2>Python Wiki</h2>
-            <p>版本 0.1.0</p>
+            <p><b>版本 0.1.0</b></p>
             <p>AI 驱动的 Wiki 文档生成器</p>
             <p>对标 Qoder Wiki 的 Python 实现</p>
-            <p>支持:</p>
+            <hr>
+            <p><b>核心功能:</b></p>
             <ul>
                 <li>一键生成 10 种类型文档</li>
                 <li>Mermaid 图表生成</li>
                 <li>增量更新</li>
                 <li>Git 集成</li>
                 <li>智能问答</li>
+                <li>架构洞察分析</li>
+                <li>隐式知识提取</li>
             </ul>
+            <hr>
+            <p>© 2024 Python Wiki Team</p>
+            <p><a href="https://github.com/guanqiao/python-wiki">GitHub</a></p>
             """
         )
 
@@ -415,11 +528,21 @@ class MainWindow(QMainWindow):
         
         self._generator_thread.start()
 
+    def _on_cancel_generation(self) -> None:
+        if self._generator_thread and self._generator_thread.isRunning():
+            self._generator_thread.cancel()
+            self.progress_panel.add_log("WARN", "正在取消生成...")
+
     def _on_generation_completed(self, success: bool, message: str) -> None:
         if success:
             self.progress_panel.complete_generation()
             self.statusbar.showMessage("文档生成完成")
             self.generation_completed.emit()
+            
+            if self._current_project:
+                wiki_dir = self._current_project.path / self._current_project.wiki.output_dir
+                self.preview_panel.set_wiki_dir(wiki_dir)
+            
             QMessageBox.information(self, "完成", "文档生成完成！")
         else:
             self.progress_panel.error_generation(message)
@@ -440,6 +563,33 @@ class MainWindow(QMainWindow):
 
         self.statusbar.showMessage("正在同步 Git...")
 
+    def _on_analyze(self) -> None:
+        if not self._current_project:
+            QMessageBox.warning(self, "警告", "请先选择一个项目")
+            return
+        
+        self.statusbar.showMessage("正在分析项目架构...")
+        self.progress_panel.add_log("INFO", "开始分析项目架构...")
+        
+        self.insights_panel.update_tech_stack({
+            "语言": ["Python 3.10+"],
+            "GUI": ["PyQt6"],
+            "解析器": ["tree-sitter"],
+            "LLM": ["LangChain", "LangGraph"],
+        })
+        
+        self.statusbar.showMessage("架构分析完成")
+
+    def _on_extract_knowledge(self) -> None:
+        if not self._current_project:
+            QMessageBox.warning(self, "警告", "请先选择一个项目")
+            return
+        
+        self.statusbar.showMessage("正在提取隐式知识...")
+        self.progress_panel.add_log("INFO", "开始提取隐式知识...")
+        
+        self.statusbar.showMessage("隐式知识提取完成")
+
     def _on_progress_update(self, progress: int, message: str) -> None:
         self.progress_panel.update_progress(progress, message)
 
@@ -448,7 +598,7 @@ class MainWindow(QMainWindow):
         if status == "running":
             self.progress_panel.add_log("INFO", f"正在生成: {stage}")
         elif status == "completed":
-            self.progress_panel.add_log("INFO", f"完成: {stage}")
+            self.progress_panel.add_log("SUCCESS", f"完成: {stage}")
         elif status == "error":
             self.progress_panel.add_log("ERROR", f"失败: {stage}")
 

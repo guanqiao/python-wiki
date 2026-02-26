@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
 class LLMProvider(str, Enum):
@@ -22,6 +22,8 @@ class Language(str, Enum):
 
 
 class LLMConfig(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    
     provider: LLMProvider = Field(default=LLMProvider.OPENAI, description="LLM 提供商")
     endpoint: str = Field(
         default="https://api.openai.com/v1",
@@ -35,11 +37,10 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=0.7, description="生成温度")
     max_tokens: int = Field(default=4096, description="最大 token 数")
 
-    class Config:
-        use_enum_values = True
-
 
 class WikiConfig(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    
     language: Language = Field(default=Language.ZH, description="文档语言")
     output_dir: Path = Field(default=Path(".python-wiki/repowiki"), description="输出目录")
     template_dir: Optional[Path] = Field(default=None, description="模板目录")
@@ -54,9 +55,6 @@ class WikiConfig(BaseModel):
         default=["architecture", "flowchart", "sequence", "class", "state", "er", "component", "db_schema"],
         description="要生成的图表类型"
     )
-
-    class Config:
-        use_enum_values = True
 
 
 class ProjectConfig(BaseModel):

@@ -26,7 +26,8 @@ Example:
     ...     result = parser.parse_file(Path("example.java"))
 """
 
-from pywiki.parsers.base import BaseParser, ParseResult
+from pywiki.parsers.base import BaseParser
+from pywiki.parsers.types import ParseResult
 from pywiki.parsers.factory import (
     ParserFactory,
     get_parser_for_file,
