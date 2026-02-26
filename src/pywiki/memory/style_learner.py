@@ -1,3 +1,4 @@
+
 """
 编码风格学习器
 从代码中自动学习编码风格偏好
@@ -28,7 +29,7 @@ class StyleLearner:
         self.memory_manager = memory_manager
         self._observations: dict[str, StyleObservation] = {}
 
-    def analyze_module(self, module: ModuleInfo) -> dict:
+    def analyze_module(self, module: ModuleInfo) -&gt; dict:
         """分析模块并学习编码风格"""
         observations = {}
 
@@ -54,7 +55,7 @@ class StyleLearner:
 
         return dict(self._observations)
 
-    def _analyze_naming_conventions(self, module: ModuleInfo) -> dict[str, StyleObservation]:
+    def _analyze_naming_conventions(self, module: ModuleInfo) -&gt; dict[str, StyleObservation]:
         """分析命名规范"""
         observations = {}
 
@@ -67,14 +68,14 @@ class StyleLearner:
             elif func.name[0].islower():
                 camel_case_funcs += 1
 
-        if snake_case_funcs > camel_case_funcs:
+        if snake_case_funcs &gt; camel_case_funcs:
             observations["function_naming"] = StyleObservation(
                 name="function_naming",
                 value="snake_case",
                 count=snake_case_funcs,
                 examples=[f.name for f in module.functions[:3]],
             )
-        elif camel_case_funcs > 0:
+        elif camel_case_funcs &gt; 0:
             observations["function_naming"] = StyleObservation(
                 name="function_naming",
                 value="camelCase",
@@ -83,7 +84,7 @@ class StyleLearner:
             )
 
         class_count = len(module.classes)
-        if class_count > 0:
+        if class_count &gt; 0:
             observations["class_naming"] = StyleObservation(
                 name="class_naming",
                 value="PascalCase",
@@ -92,7 +93,7 @@ class StyleLearner:
             )
 
         private_funcs = sum(1 for f in module.functions if f.name.startswith("_"))
-        if private_funcs > 0:
+        if private_funcs &gt; 0:
             observations["private_prefix"] = StyleObservation(
                 name="private_prefix",
                 value="single_underscore",
@@ -102,7 +103,7 @@ class StyleLearner:
 
         return observations
 
-    def _analyze_docstring_style(self, module: ModuleInfo) -> dict[str, StyleObservation]:
+    def _analyze_docstring_style(self, module: ModuleInfo) -&gt; dict[str, StyleObservation]:
         """分析文档字符串风格"""
         observations = {}
 
@@ -124,14 +125,14 @@ class StyleLearner:
                 sphinx_style += 1
 
         total_docstrings = google_style + numpy_style + sphinx_style
-        if total_docstrings > 0:
-            if google_style >= numpy_style and google_style >= sphinx_style:
+        if total_docstrings &gt; 0:
+            if google_style &gt;= numpy_style and google_style &gt;= sphinx_style:
                 observations["docstring_style"] = StyleObservation(
                     name="docstring_style",
                     value="google",
                     count=google_style,
                 )
-            elif numpy_style >= sphinx_style:
+            elif numpy_style &gt;= sphinx_style:
                 observations["docstring_style"] = StyleObservation(
                     name="docstring_style",
                     value="numpy",
@@ -144,7 +145,7 @@ class StyleLearner:
                     count=sphinx_style,
                 )
 
-        if no_docstring > 0:
+        if no_docstring &gt; 0:
             observations["docstring_coverage"] = StyleObservation(
                 name="docstring_coverage",
                 value=f"{(total_docstrings / (total_docstrings + no_docstring)) * 100:.1f}%",
@@ -153,14 +154,14 @@ class StyleLearner:
 
         return observations
 
-    def _analyze_import_style(self, module: ModuleInfo) -> dict[str, StyleObservation]:
+    def _analyze_import_style(self, module: ModuleInfo) -&gt; dict[str, StyleObservation]:
         """分析导入风格"""
         observations = {}
 
         from_imports = sum(1 for imp in module.imports if imp.is_from_import)
         direct_imports = len(module.imports) - from_imports
 
-        if from_imports > direct_imports:
+        if from_imports &gt; direct_imports:
             observations["import_style"] = StyleObservation(
                 name="import_style",
                 value="from_import",
@@ -174,10 +175,10 @@ class StyleLearner:
             )
 
         sorted_imports = all(
-            module.imports[i].module <= module.imports[i + 1].module
+            module.imports[i].module &lt;= module.imports[i + 1].module
             for i in range(len(module.imports) - 1)
         )
-        if sorted_imports and len(module.imports) > 1:
+        if sorted_imports and len(module.imports) &gt; 1:
             observations["import_ordering"] = StyleObservation(
                 name="import_ordering",
                 value="alphabetical",
@@ -186,7 +187,7 @@ class StyleLearner:
 
         return observations
 
-    def _analyze_type_hint_usage(self, module: ModuleInfo) -> dict[str, StyleObservation]:
+    def _analyze_type_hint_usage(self, module: ModuleInfo) -&gt; dict[str, StyleObservation]:
         """分析类型提示使用"""
         observations = {}
 
@@ -207,7 +208,7 @@ class StyleLearner:
                 return_typed += 1
 
         total_funcs = typed_funcs + untyped_funcs
-        if total_funcs > 0:
+        if total_funcs &gt; 0:
             observations["type_hint_usage"] = StyleObservation(
                 name="type_hint_usage",
                 value=f"{(typed_funcs / total_funcs) * 100:.1f}%",
@@ -222,7 +223,7 @@ class StyleLearner:
 
         return observations
 
-    def _analyze_class_style(self, cls: ClassInfo) -> dict[str, StyleObservation]:
+    def _analyze_class_style(self, cls: ClassInfo) -&gt; dict[str, StyleObservation]:
         """分析类风格"""
         observations = {}
 
@@ -243,7 +244,7 @@ class StyleLearner:
             )
 
         property_methods = sum(1 for m in cls.methods if "@property" in m.decorators)
-        if property_methods > 0:
+        if property_methods &gt; 0:
             observations["property_usage"] = StyleObservation(
                 name="property_usage",
                 value=True,
@@ -253,7 +254,7 @@ class StyleLearner:
 
         return observations
 
-    def _analyze_function_style(self, func: FunctionInfo) -> dict[str, StyleObservation]:
+    def _analyze_function_style(self, func: FunctionInfo) -&gt; dict[str, StyleObservation]:
         """分析函数风格"""
         observations = {}
 
@@ -265,7 +266,7 @@ class StyleLearner:
                 examples=[func.name],
             )
 
-        if len(func.decorators) > 0:
+        if len(func.decorators) &gt; 0:
             observations["decorator_usage"] = StyleObservation(
                 name="decorator_usage",
                 value=True,
@@ -274,7 +275,7 @@ class StyleLearner:
             )
 
         line_count = func.line_end - func.line_start if func.line_end and func.line_start else 0
-        if line_count > 0:
+        if line_count &gt; 0:
             observations["avg_function_length"] = StyleObservation(
                 name="avg_function_length",
                 value=line_count,
@@ -283,7 +284,7 @@ class StyleLearner:
 
         return observations
 
-    def _merge_observations(self, new_observations: dict[str, StyleObservation]) -> None:
+    def _merge_observations(self, new_observations: dict[str, StyleObservation]) -&gt; None:
         """合并观察结果"""
         for name, obs in new_observations.items():
             if name in self._observations:
@@ -293,12 +294,12 @@ class StyleLearner:
             else:
                 self._observations[name] = obs
 
-    def learn_and_save(self) -> dict:
+    def learn_and_save(self) -&gt; dict:
         """学习并保存编码风格"""
         learned_styles = {}
 
         for name, obs in self._observations.items():
-            if obs.count >= 3:
+            if obs.count &gt;= 3:
                 self.memory_manager.learn_from_interaction("code_style", {
                     "name": name,
                     "value": obs.value,
@@ -308,7 +309,7 @@ class StyleLearner:
 
         return learned_styles
 
-    def get_style_report(self) -> dict:
+    def get_style_report(self) -&gt; dict:
         """获取风格报告"""
         return {
             name: {
@@ -319,6 +320,6 @@ class StyleLearner:
             for name, obs in self._observations.items()
         }
 
-    def reset(self) -> None:
+    def reset(self) -&gt; None:
         """重置观察"""
         self._observations.clear()

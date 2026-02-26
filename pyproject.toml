@@ -16,7 +16,6 @@ pydantic-settings = "^2.1.0"
 langchain = "^0.1.0"
 langchain-openai = "^0.0.5"
 langchain-community = "^0.0.10"
-chromadb = "^0.4.22"
 PyQt6 = "^6.6.0"
 PyQt6-WebEngine = "^6.6.0"
 tree-sitter = "^0.21.0"
@@ -32,7 +31,10 @@ tenacity = "^8.2.3"
 aiofiles = "^23.2.0"
 jinja2 = "^3.1.2"
 markdown = "^3.5.2"
-weasyprint = "^60.1"
+faiss-cpu = "^1.7.4"
+
+[tool.poetry.extras]
+chromadb = ["chromadb"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
