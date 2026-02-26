@@ -1,4 +1,3 @@
-
 """
 全局记忆管理
 存储用户级别的偏好和设置
@@ -23,7 +22,7 @@ class GlobalMemory:
         self._memories: dict[str, MemoryEntry] = {}
         self._load()
 
-    def _load(self) -&gt; None:
+    def _load(self) -> None:
         if self.storage_file.exists():
             with open(self.storage_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -31,7 +30,7 @@ class GlobalMemory:
                 entry = MemoryEntry.from_dict(entry_data)
                 self._memories[entry.id] = entry
 
-    def _save(self) -&gt; None:
+    def _save(self) -> None:
         data = {
             "memories": [m.to_dict() for m in self._memories.values()],
             "updated_at": datetime.now().isoformat(),
@@ -46,7 +45,7 @@ class GlobalMemory:
         category: MemoryCategory = MemoryCategory.PREFERENCE,
         description: Optional[str] = None,
         tags: Optional[list[str]] = None,
-    ) -&gt; MemoryEntry:
+    ) -> MemoryEntry:
         """记录全局记忆"""
         existing = self._find_by_key(key)
         if existing:
@@ -68,7 +67,7 @@ class GlobalMemory:
         self._save()
         return entry
 
-    def recall(self, key: str) -&gt; Optional[Any]:
+    def recall(self, key: str) -> Optional[Any]:
         """回忆全局记忆"""
         entry = self._find_by_key(key)
         if entry:
@@ -77,7 +76,7 @@ class GlobalMemory:
             return entry.value
         return None
 
-    def recall_entry(self, key: str) -&gt; Optional[MemoryEntry]:
+    def recall_entry(self, key: str) -> Optional[MemoryEntry]:
         """回忆记忆条目"""
         entry = self._find_by_key(key)
         if entry:
@@ -85,7 +84,7 @@ class GlobalMemory:
             self._save()
         return entry
 
-    def forget(self, key: str) -&gt; bool:
+    def forget(self, key: str) -> bool:
         """遗忘全局记忆"""
         entry = self._find_by_key(key)
         if entry:
@@ -98,7 +97,7 @@ class GlobalMemory:
         self,
         category: Optional[MemoryCategory] = None,
         tags: Optional[list[str]] = None,
-    ) -&gt; list[MemoryEntry]:
+    ) -> list[MemoryEntry]:
         """列出记忆"""
         memories = list(self._memories.values())
 
@@ -110,7 +109,7 @@ class GlobalMemory:
 
         return sorted(memories, key=lambda m: m.updated_at, reverse=True)
 
-    def search(self, query: str) -&gt; list[MemoryEntry]:
+    def search(self, query: str) -> list[MemoryEntry]:
         """搜索记忆"""
         query_lower = query.lower()
         results = []
@@ -125,23 +124,23 @@ class GlobalMemory:
 
         return sorted(results, key=lambda m: m.access_count, reverse=True)
 
-    def _find_by_key(self, key: str) -&gt; Optional[MemoryEntry]:
+    def _find_by_key(self, key: str) -> Optional[MemoryEntry]:
         for entry in self._memories.values():
             if entry.key == key:
                 return entry
         return None
 
-    def get_coding_style(self) -&gt; dict:
+    def get_coding_style(self) -> dict:
         """获取编码风格偏好"""
         style_memories = self.list_memories(category=MemoryCategory.CODING_STYLE)
         return {m.key: m.value for m in style_memories}
 
-    def get_tech_preferences(self) -&gt; dict:
+    def get_tech_preferences(self) -> dict:
         """获取技术栈偏好"""
         tech_memories = self.list_memories(category=MemoryCategory.TECH_STACK)
         return {m.key: m.value for m in tech_memories}
 
-    def set_coding_style(self, style_name: str, value: Any) -&gt; None:
+    def set_coding_style(self, style_name: str, value: Any) -> None:
         """设置编码风格偏好"""
         self.remember(
             f"style.{style_name}",
@@ -151,7 +150,7 @@ class GlobalMemory:
             tags=["coding_style", "preference"],
         )
 
-    def set_tech_preference(self, tech_name: str, value: Any) -&gt; None:
+    def set_tech_preference(self, tech_name: str, value: Any) -> None:
         """设置技术栈偏好"""
         self.remember(
             f"tech.{tech_name}",
@@ -161,14 +160,14 @@ class GlobalMemory:
             tags=["tech_stack", "preference"],
         )
 
-    def export_memories(self) -&gt; dict:
+    def export_memories(self) -> dict:
         """导出所有记忆"""
         return {
             "memories": [m.to_dict() for m in self._memories.values()],
             "exported_at": datetime.now().isoformat(),
         }
 
-    def import_memories(self, data: dict) -&gt; int:
+    def import_memories(self, data: dict) -> int:
         """导入记忆"""
         count = 0
         for entry_data in data.get("memories", []):
@@ -179,7 +178,7 @@ class GlobalMemory:
         self._save()
         return count
 
-    def clear(self) -&gt; None:
+    def clear(self) -> None:
         """清除所有记忆"""
         self._memories.clear()
         self._save()

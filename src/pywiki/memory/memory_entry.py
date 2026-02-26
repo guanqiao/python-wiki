@@ -1,4 +1,3 @@
-
 """
 记忆条目定义
 """
@@ -43,17 +42,17 @@ class MemoryEntry:
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def access(self) -&gt; None:
+    def access(self) -> None:
         self.access_count += 1
         self.last_accessed = datetime.now()
 
-    def update(self, value: Any, description: Optional[str] = None) -&gt; None:
+    def update(self, value: Any, description: Optional[str] = None) -> None:
         self.value = value
         if description:
             self.description = description
         self.updated_at = datetime.now()
 
-    def to_dict(self) -&gt; dict:
+    def to_dict(self) -> dict:
         return {
             "id": self.id,
             "scope": self.scope.value,
@@ -73,7 +72,7 @@ class MemoryEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -&gt; "MemoryEntry":
+    def from_dict(cls, data: dict) -> "MemoryEntry":
         return cls(
             id=data["id"],
             scope=MemoryScope(data["scope"]),

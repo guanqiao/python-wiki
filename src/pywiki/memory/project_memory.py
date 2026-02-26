@@ -1,4 +1,3 @@
-
 """
 项目特定记忆管理
 存储项目级别的架构、业务规则、团队约定等
@@ -25,7 +24,7 @@ class ProjectMemory:
         self._memories: dict[str, MemoryEntry] = {}
         self._load()
 
-    def _load(self) -&gt; None:
+    def _load(self) -> None:
         if self.storage_file.exists():
             with open(self.storage_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -33,7 +32,7 @@ class ProjectMemory:
                 entry = MemoryEntry.from_dict(entry_data)
                 self._memories[entry.id] = entry
 
-    def _save(self) -&gt; None:
+    def _save(self) -> None:
         data = {
             "project_name": self.project_name,
             "memories": [m.to_dict() for m in self._memories.values()],
@@ -50,7 +49,7 @@ class ProjectMemory:
         description: Optional[str] = None,
         tags: Optional[list[str]] = None,
         source: str = "user",
-    ) -&gt; MemoryEntry:
+    ) -> MemoryEntry:
         """记录项目记忆"""
         existing = self._find_by_key(key)
         if existing:
@@ -74,7 +73,7 @@ class ProjectMemory:
         self._save()
         return entry
 
-    def recall(self, key: str) -&gt; Optional[Any]:
+    def recall(self, key: str) -> Optional[Any]:
         """回忆项目记忆"""
         entry = self._find_by_key(key)
         if entry:
@@ -83,7 +82,7 @@ class ProjectMemory:
             return entry.value
         return None
 
-    def recall_entry(self, key: str) -&gt; Optional[MemoryEntry]:
+    def recall_entry(self, key: str) -> Optional[MemoryEntry]:
         """回忆记忆条目"""
         entry = self._find_by_key(key)
         if entry:
@@ -91,7 +90,7 @@ class ProjectMemory:
             self._save()
         return entry
 
-    def forget(self, key: str) -&gt; bool:
+    def forget(self, key: str) -> bool:
         """遗忘项目记忆"""
         entry = self._find_by_key(key)
         if entry:
@@ -104,7 +103,7 @@ class ProjectMemory:
         self,
         category: Optional[MemoryCategory] = None,
         tags: Optional[list[str]] = None,
-    ) -&gt; list[MemoryEntry]:
+    ) -> list[MemoryEntry]:
         """列出项目记忆"""
         memories = list(self._memories.values())
 
@@ -116,7 +115,7 @@ class ProjectMemory:
 
         return sorted(memories, key=lambda m: m.updated_at, reverse=True)
 
-    def search(self, query: str) -&gt; list[MemoryEntry]:
+    def search(self, query: str) -> list[MemoryEntry]:
         """搜索项目记忆"""
         query_lower = query.lower()
         results = []
@@ -131,28 +130,28 @@ class ProjectMemory:
 
         return sorted(results, key=lambda m: m.access_count, reverse=True)
 
-    def _find_by_key(self, key: str) -&gt; Optional[MemoryEntry]:
+    def _find_by_key(self, key: str) -> Optional[MemoryEntry]:
         for entry in self._memories.values():
             if entry.key == key:
                 return entry
         return None
 
-    def get_architecture_info(self) -&gt; dict:
+    def get_architecture_info(self) -> dict:
         """获取架构信息"""
         arch_memories = self.list_memories(category=MemoryCategory.ARCHITECTURE)
         return {m.key: m.value for m in arch_memories}
 
-    def get_business_rules(self) -&gt; dict:
+    def get_business_rules(self) -> dict:
         """获取业务规则"""
         rule_memories = self.list_memories(category=MemoryCategory.BUSINESS_RULE)
         return {m.key: m.value for m in rule_memories}
 
-    def get_team_guidelines(self) -&gt; dict:
+    def get_team_guidelines(self) -> dict:
         """获取团队约定"""
         guideline_memories = self.list_memories(category=MemoryCategory.TEAM_GUIDELINE)
         return {m.key: m.value for m in guideline_memories}
 
-    def set_architecture_info(self, key: str, value: Any, description: Optional[str] = None) -&gt; None:
+    def set_architecture_info(self, key: str, value: Any, description: Optional[str] = None) -> None:
         """设置架构信息"""
         self.remember(
             f"arch.{key}",
@@ -162,7 +161,7 @@ class ProjectMemory:
             tags=["architecture"],
         )
 
-    def set_business_rule(self, key: str, value: Any, description: Optional[str] = None) -&gt; None:
+    def set_business_rule(self, key: str, value: Any, description: Optional[str] = None) -> None:
         """设置业务规则"""
         self.remember(
             f"rule.{key}",
@@ -172,7 +171,7 @@ class ProjectMemory:
             tags=["business_rule"],
         )
 
-    def set_team_guideline(self, key: str, value: Any, description: Optional[str] = None) -&gt; None:
+    def set_team_guideline(self, key: str, value: Any, description: Optional[str] = None) -> None:
         """设置团队约定"""
         self.remember(
             f"guideline.{key}",
@@ -187,7 +186,7 @@ class ProjectMemory:
         problem: str,
         solution: str,
         context: Optional[str] = None,
-    ) -&gt; MemoryEntry:
+    ) -> MemoryEntry:
         """记录问题解决方案"""
         return self.remember(
             f"solution.{problem}",
@@ -202,7 +201,7 @@ class ProjectMemory:
             source="interaction",
         )
 
-    def find_similar_solutions(self, problem: str) -&gt; list[MemoryEntry]:
+    def find_similar_solutions(self, problem: str) -> list[MemoryEntry]:
         """查找类似问题的解决方案"""
         solutions = self.list_memories(category=MemoryCategory.PROBLEM_SOLUTION)
         problem_lower = problem.lower()
@@ -214,7 +213,7 @@ class ProjectMemory:
 
         return similar
 
-    def export_memories(self) -&gt; dict:
+    def export_memories(self) -> dict:
         """导出项目记忆"""
         return {
             "project_name": self.project_name,
@@ -222,7 +221,7 @@ class ProjectMemory:
             "exported_at": datetime.now().isoformat(),
         }
 
-    def import_memories(self, data: dict) -&gt; int:
+    def import_memories(self, data: dict) -> int:
         """导入项目记忆"""
         count = 0
         for entry_data in data.get("memories", []):
@@ -233,12 +232,12 @@ class ProjectMemory:
         self._save()
         return count
 
-    def clear(self) -&gt; None:
+    def clear(self) -> None:
         """清除所有项目记忆"""
         self._memories.clear()
         self._save()
 
-    def get_summary(self) -&gt; dict:
+    def get_summary(self) -> dict:
         """获取记忆摘要"""
         categories = {}
         for entry in self._memories.values():

@@ -1,4 +1,3 @@
-
 """
 记忆管理器
 统一管理全局记忆和项目记忆
@@ -25,14 +24,14 @@ class MemoryManager:
         self._project_memories: dict[str, ProjectMemory] = {}
         self._current_project: Optional[str] = None
 
-    def set_current_project(self, project_name: str, project_path: Path) -&gt; ProjectMemory:
+    def set_current_project(self, project_name: str, project_path: Path) -> ProjectMemory:
         """设置当前项目"""
         self._current_project = project_name
         if project_name not in self._project_memories:
             self._project_memories[project_name] = ProjectMemory(project_name, project_path)
         return self._project_memories[project_name]
 
-    def get_current_project_memory(self) -&gt; Optional[ProjectMemory]:
+    def get_current_project_memory(self) -> Optional[ProjectMemory]:
         """获取当前项目记忆"""
         if self._current_project:
             return self._project_memories.get(self._current_project)
@@ -46,7 +45,7 @@ class MemoryManager:
         category: MemoryCategory = MemoryCategory.PREFERENCE,
         description: Optional[str] = None,
         tags: Optional[list[str]] = None,
-    ) -&gt; MemoryEntry:
+    ) -> MemoryEntry:
         """记录记忆"""
         if scope == MemoryScope.GLOBAL:
             return self.global_memory.remember(key, value, category, description, tags)
@@ -60,7 +59,7 @@ class MemoryManager:
         self,
         key: str,
         scope: Optional[MemoryScope] = None,
-    ) -&gt; Optional[Any]:
+    ) -> Optional[Any]:
         """回忆记忆 - 项目记忆优先"""
         if scope == MemoryScope.GLOBAL:
             return self.global_memory.recall(key)
@@ -81,7 +80,7 @@ class MemoryManager:
         self,
         key: str,
         scope: Optional[MemoryScope] = None,
-    ) -&gt; Optional[MemoryEntry]:
+    ) -> Optional[MemoryEntry]:
         """回忆记忆条目"""
         if scope == MemoryScope.GLOBAL:
             return self.global_memory.recall_entry(key)
@@ -102,7 +101,7 @@ class MemoryManager:
         self,
         key: str,
         scope: Optional[MemoryScope] = None,
-    ) -&gt; bool:
+    ) -> bool:
         """遗忘记忆"""
         if scope == MemoryScope.GLOBAL:
             return self.global_memory.forget(key)
@@ -121,7 +120,7 @@ class MemoryManager:
         self,
         query: str,
         scope: Optional[MemoryScope] = None,
-    ) -&gt; list[MemoryEntry]:
+    ) -> list[MemoryEntry]:
         """搜索记忆"""
         if scope == MemoryScope.GLOBAL:
             return self.global_memory.search(query)
@@ -138,7 +137,7 @@ class MemoryManager:
             results.extend(self.global_memory.search(query))
             return results
 
-    def get_all_context(self) -&gt; dict:
+    def get_all_context(self) -> dict:
         """获取所有上下文记忆"""
         context = {
             "global": {},
@@ -155,7 +154,7 @@ class MemoryManager:
 
         return context
 
-    def get_merged_preferences(self) -&gt; dict:
+    def get_merged_preferences(self) -> dict:
         """获取合并后的偏好（项目优先）"""
         preferences = {}
 
@@ -169,7 +168,7 @@ class MemoryManager:
 
         return preferences
 
-    def get_coding_style(self) -&gt; dict:
+    def get_coding_style(self) -> dict:
         """获取编码风格（合并全局和项目）"""
         global_style = self.global_memory.get_coding_style()
         project_memory = self.get_current_project_memory()
@@ -182,7 +181,7 @@ class MemoryManager:
 
         return global_style
 
-    def get_tech_stack(self) -&gt; dict:
+    def get_tech_stack(self) -> dict:
         """获取技术栈信息"""
         tech_stack = {}
 
@@ -200,7 +199,7 @@ class MemoryManager:
         self,
         interaction_type: str,
         content: dict,
-    ) -&gt; Optional[MemoryEntry]:
+    ) -> Optional[MemoryEntry]:
         """从交互中学习"""
         if interaction_type == "code_style":
             return self._learn_code_style(content)
@@ -212,7 +211,7 @@ class MemoryManager:
             return self._learn_preference(content)
         return None
 
-    def _learn_code_style(self, content: dict) -&gt; MemoryEntry:
+    def _learn_code_style(self, content: dict) -> MemoryEntry:
         """学习编码风格"""
         style_name = content.get("name", "")
         style_value = content.get("value")
@@ -230,7 +229,7 @@ class MemoryManager:
             tags=["coding_style", "learned"],
         )
 
-    def _learn_tech_choice(self, content: dict) -&gt; MemoryEntry:
+    def _learn_tech_choice(self, content: dict) -> MemoryEntry:
         """学习技术选择"""
         tech_name = content.get("name", "")
         tech_value = content.get("value")
@@ -245,7 +244,7 @@ class MemoryManager:
             tags=["tech_stack", "learned"],
         )
 
-    def _learn_problem_solution(self, content: dict) -&gt; Optional[MemoryEntry]:
+    def _learn_problem_solution(self, content: dict) -> Optional[MemoryEntry]:
         """学习问题解决方案"""
         project_memory = self.get_current_project_memory()
         if not project_memory:
@@ -257,7 +256,7 @@ class MemoryManager:
             context=content.get("context"),
         )
 
-    def _learn_preference(self, content: dict) -&gt; MemoryEntry:
+    def _learn_preference(self, content: dict) -> MemoryEntry:
         """学习偏好"""
         key = content.get("key", "")
         value = content.get("value")
@@ -272,7 +271,7 @@ class MemoryManager:
             tags=content.get("tags", []),
         )
 
-    def export_all(self) -&gt; dict:
+    def export_all(self) -> dict:
         """导出所有记忆"""
         data = {
             "global": self.global_memory.export_memories(),
@@ -284,7 +283,7 @@ class MemoryManager:
 
         return data
 
-    def import_all(self, data: dict) -&gt; dict:
+    def import_all(self, data: dict) -> dict:
         """导入记忆"""
         result = {
             "global": 0,
@@ -302,7 +301,7 @@ class MemoryManager:
 
         return result
 
-    def get_statistics(self) -&gt; dict:
+    def get_statistics(self) -> dict:
         """获取记忆统计"""
         stats = {
             "global": {

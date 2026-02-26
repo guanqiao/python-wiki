@@ -1,13 +1,18 @@
 """
-高性能检索引擎模块
+搜索引擎模块
+提供高性能的代码检索能力
 """
 
-from pywiki.search.code_search_engine import CodeSearchEngine
-from pywiki.search.semantic_indexer import SemanticIndexer
-from pywiki.search.cross_module_search import CrossModuleSearcher
+from pywiki.search.engine import SearchEngine, SearchResult
+from pywiki.search.tiered_index import TieredIndex, IndexLevel
+from pywiki.search.hybrid_search import HybridSearch
+from pywiki.search.cache import SearchCache
 
 __all__ = [
-    "CodeSearchEngine",
-    "SemanticIndexer",
-    "CrossModuleSearcher",
+    "SearchEngine",
+    "SearchResult",
+    "TieredIndex",
+    "IndexLevel",
+    "HybridSearch",
+    "SearchCache",
 ]
