@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QToolBar,
     QMessageBox,
     QFileDialog,
+    QTabWidget,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence, QShortcut
@@ -27,6 +28,7 @@ from pywiki.gui.panels.project_panel import ProjectPanel
 from pywiki.gui.panels.config_panel import ConfigPanel
 from pywiki.gui.panels.preview_panel import PreviewPanel
 from pywiki.gui.panels.progress_panel import ProgressPanel
+from pywiki.gui.panels.qa_panel import QAPanel
 from pywiki.gui.dialogs.new_project_dialog import NewProjectDialog
 from pywiki.gui.dialogs.llm_config_dialog import LLMConfigDialog
 
@@ -51,7 +53,7 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._load_last_project()
 
-    def _init_ui(self) -> None:
+    def _init_ui(self) -&gt; None:
         self.setWindowTitle("Python Wiki - AI 文档生成器")
         self.setMinimumSize(1200, 800)
         self.resize(1400, 900)
@@ -69,8 +71,15 @@ class MainWindow(QMainWindow):
 
         right_splitter = QSplitter(Qt.Orientation.Vertical)
 
+        self.content_tab = QTabWidget()
+        
         self.preview_panel = PreviewPanel()
-        right_splitter.addWidget(self.preview_panel)
+        self.content_tab.addTab(self.preview_panel, "📄 文档预览")
+        
+        self.qa_panel = QAPanel()
+        self.content_tab.addTab(self.qa_panel, "💬 智能问答")
+        
+        right_splitter.addWidget(self.content_tab)
 
         self.progress_panel = ProgressPanel()
         right_splitter.addWidget(self.progress_panel)

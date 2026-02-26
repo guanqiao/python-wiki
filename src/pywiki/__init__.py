@@ -8,10 +8,34 @@ __author__ = "Python Wiki Team"
 
 from pywiki.config.settings import Settings
 from pywiki.config.models import LLMConfig, WikiConfig
+from pywiki.wiki.manager import WikiManager
+from pywiki.wiki.storage import WikiStorage
+from pywiki.wiki.history import WikiHistory
+from pywiki.wiki.export import WikiExporter
+from pywiki.llm.client import LLMClient
+from pywiki.llm.base import BaseLLMClient
+from pywiki.knowledge.vector_store import VectorStore
+from pywiki.knowledge.search import KnowledgeSearch
+from pywiki.memory.personal import PersonalMemory
+from pywiki.memory.project import ProjectMemory
+from pywiki.memory.solutions import SolutionMemory
+from pywiki.agent.search_memory import SearchMemoryTool
 
 __all__ = [
     "Settings",
     "LLMConfig", 
     "WikiConfig",
+    "WikiManager",
+    "WikiStorage",
+    "WikiHistory",
+    "WikiExporter",
+    "LLMClient",
+    "BaseLLMClient",
+    "VectorStore",
+    "KnowledgeSearch",
+    "PersonalMemory",
+    "ProjectMemory",
+    "SolutionMemory",
+    "SearchMemoryTool",
     "__version__",
 ]

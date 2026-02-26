@@ -51,6 +51,16 @@ class JavaParser(BaseParser):
     MYBATIS_PLUS = {"TableName", "TableId", "TableField", "Version", "LogicDelete"}
     MYBATIS_MAPPER = {"Mapper", "Select", "Insert", "Update", "Delete"}
 
+    # Lombok 注解
+    LOMBOK = {"Data", "Getter", "Setter", "Builder", "NoArgsConstructor",
+              "AllArgsConstructor", "RequiredArgsConstructor", "ToString", "EqualsAndHashCode",
+              "Slf4j", "Log4j2"}
+
+    # JPA/Hibernate 注解
+    JPA_ENTITY = {"Entity", "Table", "Column", "Id", "GeneratedValue", "SequenceGenerator",
+                  "Temporal", "Enumerated", "Lob", "Transient", "Version"}
+    JPA_RELATIONSHIP = {"OneToOne", "OneToMany", "ManyToOne", "ManyToMany", "JoinColumn", "JoinTable"}
+
     def __init__(
         self,
         exclude_patterns: Optional[list[str]] = None,
@@ -134,6 +144,11 @@ class JavaParser(BaseParser):
                     module_info.classes.append(class_info)
             elif child.type == "annotation_type_declaration":
                 class_info = self._parse_annotation(child, source, module_info.name)
+                if self.include_private or class_info.visibility != Visibility.PRIVATE:
+                    module_info.classes.append(class_info)
+            elif child.type == "record_declaration":
+                # Java 14+ Record
+                class_info = self._parse_record(child, source, module_info.name)
                 if self.include_private or class_info.visibility != Visibility.PRIVATE:
                     module_info.classes.append(class_info)
 
@@ -546,6 +561,51 @@ class JavaParser(BaseParser):
 
         return fields
 
+    def _parse_record(self, node, source: str, package_name: str) -> ClassInfo:
+        """解析 Java 14+ Record"""
+        name = ""
+        visibility = Visibility.PUBLIC
+        annotations = []
+
+        for child in node.children:
+            if child.type == "modifiers":
+                mods, anns = self._parse_modifiers(child, source)
+                visibility = self._get_visibility_from_modifiers(mods)
+                annotations = anns
+            elif child.type == "identifier":
+                name = self._get_node_text(child, source)
+
+        full_name = f"{package_name}.{name}" if package_name else name
+
+        record_info = ClassInfo(
+            name=name,
+            full_name=full_name,
+            visibility=visibility,
+            docstring=f"Java Record\n{self._extract_javadoc(node, source) or ''}".strip(),
+            line_start=node.start_point[0] + 1,
+            line_end=node.end_point[0] + 1,
+        )
+
+        # 解析 record 组件（隐式的 final 字段）
+        for child in node.children:
+            if child.type == "formal_parameters":
+                # Record 的参数列表就是它的组件
+                for param in child.children:
+                    if param.type == "formal_parameter":
+                        param_info = self._parse_parameter(param, source)
+                        if param_info:
+                            record_info.class_variables.append(PropertyInfo(
+                                name=param_info.name,
+                                type_hint=param_info.type_hint,
+                                visibility=Visibility.PRIVATE,
+                                is_readonly=True,
+                            ))
+
+        # 分析 Lombok 注解
+        record_info = self._analyze_lombok_features(record_info, annotations)
+
+        return record_info
+
     def _analyze_spring_features(
         self,
         class_info: ClassInfo,
@@ -578,9 +638,83 @@ class JavaParser(BaseParser):
             if table_name:
                 spring_info.append(f"Table: {table_name}")
 
+        # 检查 JPA Entity
+        if any(ann in self.JPA_ENTITY for ann in annotations):
+            spring_info.append("JPA Entity")
+            jpa_table = self._extract_jpa_table_name(source)
+            if jpa_table:
+                spring_info.append(f"Table: {jpa_table}")
+
         if spring_info:
             existing_doc = class_info.docstring or ""
             class_info.docstring = f"{' | '.join(spring_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _analyze_lombok_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str]
+    ) -> ClassInfo:
+        """分析 Lombok 注解特性"""
+        lombok_info = []
+
+        if any(ann in self.LOMBOK for ann in annotations):
+            found_annotations = [ann for ann in annotations if ann in self.LOMBOK]
+            if found_annotations:
+                lombok_info.append(f"Lombok: {', '.join(found_annotations)}")
+
+            # @Data 包含 @Getter @Setter @ToString @EqualsAndHashCode
+            if "Data" in annotations:
+                lombok_info.append("自动生成 Getter/Setter/ToString/EqualsAndHashCode")
+
+            # @Builder 生成构建器模式
+            if "Builder" in annotations:
+                lombok_info.append("Builder 模式")
+
+            # @Slf4j / @Log4j2 日志
+            if "Slf4j" in annotations:
+                lombok_info.append("SLF4J Logger")
+            if "Log4j2" in annotations:
+                lombok_info.append("Log4j2 Logger")
+
+        if lombok_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(lombok_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _analyze_jpa_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析 JPA/Hibernate 特性"""
+        jpa_info = []
+
+        # 检查 JPA 实体注解
+        jpa_entity_annotations = self.JPA_ENTITY & set(annotations)
+        if jpa_entity_annotations:
+            jpa_info.append(f"JPA: {', '.join(jpa_entity_annotations)}")
+
+        # 检查关系注解
+        jpa_rel_annotations = self.JPA_RELATIONSHIP & set(annotations)
+        if jpa_rel_annotations:
+            relationships = []
+            if "OneToOne" in jpa_rel_annotations:
+                relationships.append("一对一")
+            if "OneToMany" in jpa_rel_annotations:
+                relationships.append("一对多")
+            if "ManyToOne" in jpa_rel_annotations:
+                relationships.append("多对一")
+            if "ManyToMany" in jpa_rel_annotations:
+                relationships.append("多对多")
+            jpa_info.append(f"关系: {', '.join(relationships)}")
+
+        if jpa_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(jpa_info)}\n{existing_doc}".strip()
 
         return class_info
 
@@ -648,6 +782,17 @@ class JavaParser(BaseParser):
         import re
 
         pattern = r'@TableName\s*\(\s*["\']([^"\']+)["\']\s*\)'
+        match = re.search(pattern, source)
+        if match:
+            return match.group(1)
+
+        return None
+
+    def _extract_jpa_table_name(self, source: str) -> Optional[str]:
+        """提取 JPA 表名"""
+        import re
+
+        pattern = r'@Table\s*\(\s*name\s*=\s*["\']([^"\']+)["\']\s*\)'
         match = re.search(pattern, source)
         if match:
             return match.group(1)

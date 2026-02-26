@@ -24,7 +24,24 @@ from pywiki.parsers.types import (
 
 
 class PythonParser(BaseParser):
-    """Python AST 解析器"""
+    """Python AST 解析器
+
+    支持 FastAPI、Pydantic、SQLAlchemy 等主流框架识别
+    """
+
+    # FastAPI 相关
+    FASTAPI_METHODS = {"get", "post", "put", "delete", "patch", "head", "options", "trace"}
+    FASTAPI_DECORATORS = {"route", "api_route", "websocket", "websocket_route"}
+
+    # Pydantic 相关
+    PYDANTIC_BASES = {"BaseModel", "pydantic.BaseModel"}
+
+    # SQLAlchemy 相关
+    SQLALCHEMY_BASES = {
+        "declarative_base", "DeclarativeBase",
+        "Base", "db.Model", "Model"
+    }
+    SQLALCHEMY_COLUMNS = {"Column", "Integer", "String", "Float", "Boolean", "DateTime", "Text"}
 
     def get_supported_extensions(self) -> list[str]:
         return [".py", ".pyi"]
@@ -142,6 +159,14 @@ class PythonParser(BaseParser):
             else False
             for decorator in node.decorator_list
         )
+        is_pydantic = any(
+            self._get_name(base) in self.PYDANTIC_BASES
+            for base in node.bases
+        )
+        is_sqlalchemy = any(
+            self._get_name(base) in self.SQLALCHEMY_BASES
+            for base in node.bases
+        )
 
         class_info = ClassInfo(
             name=node.name,
@@ -155,6 +180,11 @@ class PythonParser(BaseParser):
             decorators=[self._get_decorator_name(d) for d in node.decorator_list],
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
+        )
+
+        # 分析框架特性
+        class_info = self._analyze_framework_features(
+            class_info, node, is_pydantic, is_sqlalchemy
         )
 
         for item in node.body:
@@ -188,6 +218,8 @@ class PythonParser(BaseParser):
         is_classmethod = False
         is_staticmethod = False
         is_abstract = False
+        is_fastapi_route = False
+        route_info = None
 
         for decorator in node.decorator_list:
             dec_name = self._get_decorator_name(decorator)
@@ -197,6 +229,9 @@ class PythonParser(BaseParser):
                 is_staticmethod = True
             elif dec_name == "abstractmethod":
                 is_abstract = True
+            elif self._is_fastapi_decorator(dec_name):
+                is_fastapi_route = True
+                route_info = self._extract_route_info(decorator, dec_name)
 
         parameters = self._parse_parameters(node.args)
 
@@ -207,7 +242,7 @@ class PythonParser(BaseParser):
         docstring = ast.get_docstring(node)
         description = self._extract_description(docstring)
 
-        return FunctionInfo(
+        func_info = FunctionInfo(
             name=node.name,
             full_name=full_name,
             parameters=parameters,
@@ -224,6 +259,12 @@ class PythonParser(BaseParser):
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
         )
+
+        # 添加 FastAPI 路由信息
+        if is_fastapi_route and route_info:
+            func_info.docstring = f"FastAPI {route_info}\n{func_info.docstring or ''}".strip()
+
+        return func_info
 
     def _parse_parameters(self, args: ast.arguments) -> list[ParameterInfo]:
         parameters = []
@@ -380,6 +421,69 @@ class PythonParser(BaseParser):
         matches = re.findall(pattern, docstring)
         raises.extend(matches)
         return raises
+
+    def _analyze_framework_features(
+        self,
+        class_info: ClassInfo,
+        node: ast.ClassDef,
+        is_pydantic: bool,
+        is_sqlalchemy: bool
+    ) -> ClassInfo:
+        """分析 Python 框架特性"""
+        framework_info = []
+
+        # Pydantic 模型
+        if is_pydantic:
+            framework_info.append("Pydantic Model")
+            # 检查是否使用 Field
+            has_field = any(
+                isinstance(item, ast.AnnAssign) and
+                item.value and
+                isinstance(item.value, ast.Call) and
+                isinstance(item.value.func, ast.Name) and
+                item.value.func.id == "Field"
+                for item in node.body
+            )
+            if has_field:
+                framework_info.append("使用 Field 验证")
+
+        # SQLAlchemy 模型
+        if is_sqlalchemy:
+            framework_info.append("SQLAlchemy Model")
+            # 检查是否有 __tablename__
+            has_tablename = any(
+                isinstance(item, ast.Assign) and
+                any(isinstance(t, ast.Name) and t.id == "__tablename__" for t in item.targets)
+                for item in node.body
+            )
+            if has_tablename:
+                framework_info.append("自定义表名")
+
+        if framework_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(framework_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _is_fastapi_decorator(self, decorator_name: str) -> bool:
+        """检查是否为 FastAPI 路由装饰器"""
+        parts = decorator_name.split(".")
+        base_name = parts[-1] if parts else decorator_name
+        return base_name.lower() in self.FASTAPI_METHODS or base_name in self.FASTAPI_DECORATORS
+
+    def _extract_route_info(self, decorator: ast.AST, decorator_name: str) -> Optional[str]:
+        """提取 FastAPI 路由信息"""
+        parts = decorator_name.split(".")
+        method = parts[-1].upper() if parts else "GET"
+
+        path = "/"
+        if isinstance(decorator, ast.Call) and decorator.args:
+            # 第一个参数通常是路径
+            first_arg = decorator.args[0]
+            if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                path = first_arg.value
+
+        return f"[{method}] {path}"
 
     def _extract_dependencies(self, module_info: ModuleInfo) -> list[DependencyInfo]:
         dependencies = []

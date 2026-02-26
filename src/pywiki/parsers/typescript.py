@@ -126,20 +126,93 @@ class TypeScriptParser(BaseParser):
     def _extract_vue_info(self, source: str, module_info: ModuleInfo) -> ModuleInfo:
         """提取 Vue 组件特有信息"""
         # 检查是否使用 Composition API
-        if "setup" in source or "defineProps" in source or "defineEmits" in source:
-            module_info.docstring = f"{module_info.docstring or ''}\n使用 Composition API".strip()
+        is_composition_api = "setup" in source or "defineProps" in source or "defineEmits" in source
+        is_options_api = False
 
-        # 提取 Props 定义
+        # 检查是否使用 Options API
+        options_api_patterns = [
+            r'\bdata\s*\(\s*\)\s*\{',
+            r'\bmethods\s*:\s*\{',
+            r'\bcomputed\s*:\s*\{',
+            r'\bwatch\s*:\s*\{',
+            r'\bprops\s*:\s*\{',
+            r'\bemits\s*:\s*\[',
+            r'\bcomponents\s*:\s*\{',
+            r'\blifecycle\s*:\s*\{',
+        ]
+        for pattern in options_api_patterns:
+            if re.search(pattern, source):
+                is_options_api = True
+                break
+
+        if is_composition_api:
+            module_info.docstring = f"{module_info.docstring or ''}\n使用 Composition API".strip()
+        elif is_options_api:
+            module_info.docstring = f"{module_info.docstring or ''}\n使用 Options API".strip()
+
+        # 提取 Props 定义 (Composition API)
         props_match = re.search(r'defineProps<([^>]+)>', source)
         if props_match:
             props_type = props_match.group(1).strip()
             module_info.docstring = f"{module_info.docstring or ''}\nProps: {props_type}".strip()
 
-        # 提取 Emits 定义
+        # 提取 Props 定义 (Options API)
+        props_options_match = re.search(r'props\s*:\s*\{([^}]+)\}', source, re.DOTALL)
+        if props_options_match and is_options_api:
+            props_content = props_options_match.group(1).strip()
+            # 提取 props 名称
+            prop_names = re.findall(r'(\w+)\s*:', props_content)
+            if prop_names:
+                module_info.docstring = f"{module_info.docstring or ''}\nProps: {', '.join(prop_names)}".strip()
+
+        # 提取 Emits 定义 (Composition API)
         emits_match = re.search(r'defineEmits<([^>]+)>', source)
         if emits_match:
             emits_type = emits_match.group(1).strip()
             module_info.docstring = f"{module_info.docstring or ''}\nEmits: {emits_type}".strip()
+
+        # 提取 Emits 定义 (Options API)
+        emits_options_match = re.search(r'emits\s*:\s*\[([^\]]+)\]', source)
+        if emits_options_match and is_options_api:
+            emits_list = emits_options_match.group(1).strip()
+            emit_names = re.findall(r'["\']([^"\']+)["\']', emits_list)
+            if emit_names:
+                module_info.docstring = f"{module_info.docstring or ''}\nEmits: {', '.join(emit_names)}".strip()
+
+        # 提取组件名称
+        name_match = re.search(r'name\s*:\s*["\']([^"\']+)["\']', source)
+        if name_match:
+            component_name = name_match.group(1)
+            module_info.docstring = f"{module_info.docstring or ''}\n组件名: {component_name}".strip()
+
+        # 提取生命周期钩子
+        lifecycle_hooks = [
+            'beforeCreate', 'created', 'beforeMount', 'mounted',
+            'beforeUpdate', 'updated', 'beforeUnmount', 'unmounted',
+            'activated', 'deactivated', 'errorCaptured', 'renderTracked', 'renderTriggered'
+        ]
+        found_hooks = []
+        for hook in lifecycle_hooks:
+            if re.search(rf'\b{hook}\s*\(', source):
+                found_hooks.append(hook)
+        if found_hooks:
+            module_info.docstring = f"{module_info.docstring or ''}\n生命周期: {', '.join(found_hooks)}".strip()
+
+        # 提取 Computed 属性 (Options API)
+        computed_match = re.search(r'computed\s*:\s*\{([^}]+)\}', source, re.DOTALL)
+        if computed_match and is_options_api:
+            computed_content = computed_match.group(1).strip()
+            computed_names = re.findall(r'(\w+)\s*\(', computed_content)
+            if computed_names:
+                module_info.docstring = f"{module_info.docstring or ''}\nComputed: {', '.join(computed_names)}".strip()
+
+        # 提取 Methods (Options API)
+        methods_match = re.search(r'methods\s*:\s*\{([^}]+)\}', source, re.DOTALL)
+        if methods_match and is_options_api:
+            methods_content = methods_match.group(1).strip()
+            method_names = re.findall(r'(\w+)\s*\(', methods_content)
+            if method_names:
+                module_info.docstring = f"{module_info.docstring or ''}\nMethods: {', '.join(method_names)}".strip()
 
         return module_info
 
@@ -209,6 +282,21 @@ class TypeScriptParser(BaseParser):
             elif child.type == "type_alias_declaration":
                 # TypeScript type 别名
                 self._parse_type_alias(child, source, module_info)
+            elif child.type == "enum_declaration":
+                # TypeScript 枚举
+                enum_info = self._parse_enum(child, source, module_name)
+                if self.include_private or enum_info.visibility != Visibility.PRIVATE:
+                    module_info.classes.append(enum_info)
+            elif child.type == "namespace_declaration":
+                # TypeScript 命名空间
+                namespace_info = self._parse_namespace(child, source, module_name)
+                if namespace_info:
+                    module_info.submodules.append(namespace_info.name)
+            elif child.type == "module_declaration":
+                # TypeScript 模块
+                module_decl_info = self._parse_module_declaration(child, source, module_name)
+                if module_decl_info:
+                    module_info.submodules.append(module_decl_info.name)
 
         return module_info
 
@@ -773,6 +861,133 @@ class TypeScriptParser(BaseParser):
         if comments:
             return "\n".join(comments)
         return None
+
+    def _parse_enum(self, node, source: str, module_name: str) -> ClassInfo:
+        """解析 TypeScript 枚举"""
+        name = ""
+        is_const = False
+
+        for child in node.children:
+            if child.type == "const":
+                is_const = True
+            elif child.type == "identifier":
+                name = self._get_node_text(child, source)
+
+        full_name = f"{module_name}.{name}"
+        visibility = self._get_visibility(name)
+
+        enum_info = ClassInfo(
+            name=name,
+            full_name=full_name,
+            visibility=visibility,
+            is_enum=True,
+            docstring=f"{'const ' if is_const else ''}enum\n{self._extract_jsdoc(node, source) or ''}".strip(),
+            line_start=node.start_point[0] + 1,
+            line_end=node.end_point[0] + 1,
+        )
+
+        # 解析枚举成员
+        for child in node.children:
+            if child.type == "enum_body":
+                for member in child.children:
+                    if member.type == "property_identifier" or member.type == "identifier":
+                        member_name = self._get_node_text(member, source)
+                        enum_info.class_variables.append(PropertyInfo(
+                            name=member_name,
+                            visibility=Visibility.PUBLIC,
+                        ))
+                    elif member.type == "enum_assignment":
+                        # 枚举成员赋值
+                        for assign_child in member.children:
+                            if assign_child.type == "property_identifier":
+                                member_name = self._get_node_text(assign_child, source)
+                                enum_info.class_variables.append(PropertyInfo(
+                                    name=member_name,
+                                    visibility=Visibility.PUBLIC,
+                                ))
+
+        return enum_info
+
+    def _parse_namespace(self, node, source: str, module_name: str) -> Optional[ModuleInfo]:
+        """解析 TypeScript 命名空间"""
+        name = ""
+
+        for child in node.children:
+            if child.type == "identifier":
+                name = self._get_node_text(child, source)
+
+        if not name:
+            return None
+
+        full_name = f"{module_name}.{name}"
+
+        namespace_info = ModuleInfo(
+            name=full_name,
+            file_path=Path(),  # 命名空间没有独立文件
+            docstring=self._extract_jsdoc(node, source),
+        )
+
+        # 解析命名空间内容
+        for child in node.children:
+            if child.type == "statement_block":
+                for stmt in child.children:
+                    if stmt.type == "export_statement":
+                        self._parse_export(stmt, source, namespace_info)
+                    elif stmt.type == "class_declaration":
+                        class_info = self._parse_class(stmt, source, full_name)
+                        if self.include_private or class_info.visibility != Visibility.PRIVATE:
+                            namespace_info.classes.append(class_info)
+                    elif stmt.type == "interface_declaration":
+                        interface_info = self._parse_interface(stmt, source, full_name)
+                        if self.include_private or interface_info.visibility != Visibility.PRIVATE:
+                            namespace_info.classes.append(interface_info)
+                    elif stmt.type == "function_declaration":
+                        func_info = self._parse_function(stmt, source, full_name)
+                        if self.include_private or func_info.visibility != Visibility.PRIVATE:
+                            namespace_info.functions.append(func_info)
+                    elif stmt.type == "enum_declaration":
+                        enum_info = self._parse_enum(stmt, source, full_name)
+                        if self.include_private or enum_info.visibility != Visibility.PRIVATE:
+                            namespace_info.classes.append(enum_info)
+
+        return namespace_info
+
+    def _parse_module_declaration(self, node, source: str, module_name: str) -> Optional[ModuleInfo]:
+        """解析 TypeScript 模块声明"""
+        name = ""
+
+        for child in node.children:
+            if child.type == "string":
+                # 模块名可能是字符串，如 declare module "foo"
+                name = self._get_node_text(child, source).strip('"\'')
+            elif child.type == "identifier":
+                name = self._get_node_text(child, source)
+
+        if not name:
+            return None
+
+        full_name = f"{module_name}.{name}"
+
+        module_decl_info = ModuleInfo(
+            name=full_name,
+            file_path=Path(),
+            docstring=f"Module\n{self._extract_jsdoc(node, source) or ''}".strip(),
+        )
+
+        # 解析模块内容
+        for child in node.children:
+            if child.type == "statement_block":
+                for stmt in child.children:
+                    if stmt.type == "export_statement":
+                        self._parse_export(stmt, source, module_decl_info)
+                    elif stmt.type == "interface_declaration":
+                        interface_info = self._parse_interface(stmt, source, full_name)
+                        if self.include_private or interface_info.visibility != Visibility.PRIVATE:
+                            module_decl_info.classes.append(interface_info)
+                    elif stmt.type == "type_alias_declaration":
+                        self._parse_type_alias(stmt, source, module_decl_info)
+
+        return module_decl_info
 
     def _extract_dependencies(self, module_info: ModuleInfo) -> list[DependencyInfo]:
         """提取依赖关系"""
