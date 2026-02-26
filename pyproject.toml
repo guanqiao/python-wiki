@@ -1,0 +1,68 @@
+[tool.poetry]
+name = "pywiki"
+version = "0.1.0"
+description = "AI-powered Wiki documentation generator for Python projects -对标 Qoder Wiki"
+authors = ["Python Wiki Team"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "pywiki", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+click = "^8.1.0"
+typer = "^0.9.0"
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+langchain = "^0.1.0"
+langchain-openai = "^0.0.5"
+langchain-community = "^0.0.10"
+chromadb = "^0.4.22"
+PyQt6 = "^6.6.0"
+PyQt6-WebEngine = "^6.6.0"
+tree-sitter = "^0.21.0"
+tree-sitter-python = "^0.21.0"
+tree-sitter-javascript = "^0.21.0"
+tree-sitter-typescript = "^0.21.0"
+tree-sitter-java = "^0.21.0"
+gitpython = "^3.1.40"
+rich = "^13.7.0"
+pyyaml = "^6.0.1"
+httpx = "^0.26.0"
+tenacity = "^8.2.3"
+aiofiles = "^23.2.0"
+jinja2 = "^3.1.2"
+markdown = "^3.5.2"
+weasyprint = "^60.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+pytest-asyncio = "^0.21.0"
+black = "^23.12.0"
+ruff = "^0.1.0"
+mypy = "^1.8.0"
+
+[tool.poetry.scripts]
+pywiki = "pywiki.cli.main:app"
+pywiki-gui = "pywiki.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
