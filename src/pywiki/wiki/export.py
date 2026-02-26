@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Optional, List
 
 import markdown
-from weasyprint import HTML
 
 
 class WikiExporter:
@@ -18,14 +17,14 @@ class WikiExporter:
         self.output_dir = output_dir or wiki_dir.parent / "exports"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_wiki_files(self) -&gt; List[Path]:
+    def _get_wiki_files(self) -> List[Path]:
         """获取所有 Wiki Markdown 文件"""
         return list(self.wiki_dir.rglob("*.md"))
 
     async def export_markdown(
         self,
         output_path: Optional[Path] = None,
-    ) -&gt; Path:
+    ) -> Path:
         """
         导出为 Markdown 格式（打包所有文件）
         
@@ -53,7 +52,7 @@ class WikiExporter:
         
         return output_path
 
-    def _markdown_to_html(self, md_content: str, title: str = "Wiki") -&gt; str:
+    def _markdown_to_html(self, md_content: str, title: str = "Wiki") -> str:
         """
         将 Markdown 转换为 HTML
         
@@ -75,13 +74,13 @@ class WikiExporter:
             ]
         )
         
-        html_template = f"""&lt;!DOCTYPE html&gt;
-&lt;html lang="zh-CN"&gt;
-&lt;head&gt;
-    &lt;meta charset="UTF-8"&gt;
-    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
-    &lt;title&gt;{title}&lt;/title&gt;
-    &lt;style&gt;
+        html_template = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             line-height: 1.6;
@@ -158,12 +157,12 @@ class WikiExporter:
             font-weight: bold;
             margin-bottom: 10px;
         }}
-    &lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
+    </style>
+</head>
+<body>
     {html_content}
-&lt;/body&gt;
-&lt;/html&gt;"""
+</body>
+</html>"""
         
         return html_template
 
@@ -171,7 +170,7 @@ class WikiExporter:
         self,
         output_path: Optional[Path] = None,
         single_file: bool = False,
-    ) -&gt; Path:
+    ) -> Path:
         """
         导出为 HTML 格式
         
@@ -228,7 +227,7 @@ class WikiExporter:
     async def export_pdf(
         self,
         output_path: Optional[Path] = None,
-    ) -&gt; Path:
+    ) -> Path:
         """
         导出为 PDF 格式
         
@@ -238,6 +237,8 @@ class WikiExporter:
         Returns:
             输出 PDF 文件路径
         """
+        from weasyprint import HTML
+        
         if output_path is None:
             output_path = self.output_dir / "wiki.pdf"
         
@@ -262,7 +263,7 @@ class WikiExporter:
     async def export_all(
         self,
         formats: Optional[List[str]] = None,
-    ) -&gt; dict[str, Path]:
+    ) -> dict[str, Path]:
         """
         导出为多种格式
         

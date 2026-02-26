@@ -15,7 +15,7 @@ from pywiki.wiki.export import WikiExporter
 from pywiki.llm.client import LLMClient
 from pywiki.llm.base import BaseLLMClient
 from pywiki.knowledge.vector_store import VectorStore
-from pywiki.knowledge.search import KnowledgeSearch
+from pywiki.knowledge.search import KnowledgeSearcher
 from pywiki.memory.personal import PersonalMemory
 from pywiki.memory.project import ProjectMemory
 from pywiki.memory.solutions import SolutionMemory
@@ -32,7 +32,7 @@ __all__ = [
     "LLMClient",
     "BaseLLMClient",
     "VectorStore",
-    "KnowledgeSearch",
+    "KnowledgeSearcher",
     "PersonalMemory",
     "ProjectMemory",
     "SolutionMemory",

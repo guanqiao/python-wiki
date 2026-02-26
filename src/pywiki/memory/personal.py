@@ -28,10 +28,10 @@ class PersonalMemory:
         self._preferences: Optional[PersonalPreferences] = None
         self._load_preferences()
 
-    def _get_preferences_path(self) -&gt; Path:
+    def _get_preferences_path(self) -> Path:
         return self.storage_path / "personal_preferences.json"
 
-    def _load_preferences(self) -&gt; None:
+    def _load_preferences(self) -> None:
         pref_path = self._get_preferences_path()
         if pref_path.exists():
             try:
@@ -43,19 +43,19 @@ class PersonalMemory:
         else:
             self._preferences = PersonalPreferences()
 
-    def _save_preferences(self) -&gt; None:
+    def _save_preferences(self) -> None:
         if self._preferences:
             pref_path = self._get_preferences_path()
             with open(pref_path, "w", encoding="utf-8") as f:
                 json.dump(asdict(self._preferences), f, ensure_ascii=False, indent=2)
 
-    def get_preferences(self) -&gt; PersonalPreferences:
+    def get_preferences(self) -> PersonalPreferences:
         """获取个人偏好"""
         if self._preferences is None:
             self._load_preferences()
         return self._preferences
 
-    def update_preferences(self, **kwargs: Any) -&gt; None:
+    def update_preferences(self, **kwargs: Any) -> None:
         """更新个人偏好"""
         if self._preferences is None:
             self._load_preferences()
@@ -66,7 +66,7 @@ class PersonalMemory:
         
         self._save_preferences()
 
-    def set_custom_setting(self, key: str, value: Any) -&gt; None:
+    def set_custom_setting(self, key: str, value: Any) -> None:
         """设置自定义设置"""
         if self._preferences is None:
             self._load_preferences()
@@ -74,14 +74,14 @@ class PersonalMemory:
         self._preferences.custom_settings[key] = value
         self._save_preferences()
 
-    def get_custom_setting(self, key: str, default: Any = None) -&gt; Any:
+    def get_custom_setting(self, key: str, default: Any = None) -> Any:
         """获取自定义设置"""
         if self._preferences is None:
             self._load_preferences()
         
         return self._preferences.custom_settings.get(key, default)
 
-    def reset_preferences(self) -&gt; None:
+    def reset_preferences(self) -> None:
         """重置为默认偏好"""
         self._preferences = PersonalPreferences()
         self._save_preferences()

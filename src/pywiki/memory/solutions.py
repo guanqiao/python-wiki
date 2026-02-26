@@ -32,10 +32,10 @@ class SolutionMemory:
         self._solutions: Dict[str, Solution] = {}
         self._load_solutions()
 
-    def _get_solutions_path(self) -&gt; Path:
+    def _get_solutions_path(self) -> Path:
         return self.storage_path / "solutions.json"
 
-    def _load_solutions(self) -&gt; None:
+    def _load_solutions(self) -> None:
         solutions_path = self._get_solutions_path()
         if solutions_path.exists():
             try:
@@ -50,13 +50,13 @@ class SolutionMemory:
         else:
             self._solutions = {}
 
-    def _save_solutions(self) -&gt; None:
+    def _save_solutions(self) -> None:
         solutions_path = self._get_solutions_path()
         data_list = [asdict(sol) for sol in self._solutions.values()]
         with open(solutions_path, "w", encoding="utf-8") as f:
             json.dump(data_list, f, ensure_ascii=False, indent=2)
 
-    def _generate_id(self) -&gt; str:
+    def _generate_id(self) -> str:
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         return f"SOL-{timestamp}"
 
@@ -68,7 +68,7 @@ class SolutionMemory:
         related_files: Optional[List[str]] = None,
         related_modules: Optional[List[str]] = None,
         solution_id: Optional[str] = None,
-    ) -&gt; Solution:
+    ) -> Solution:
         """添加解决方案"""
         sol_id = solution_id or self._generate_id()
         sol = Solution(
@@ -84,11 +84,11 @@ class SolutionMemory:
         self._save_solutions()
         return sol
 
-    def get_solution(self, solution_id: str) -&gt; Optional[Solution]:
+    def get_solution(self, solution_id: str) -> Optional[Solution]:
         """获取解决方案"""
         return self._solutions.get(solution_id)
 
-    def update_solution(self, solution_id: str, **kwargs: Any) -&gt; bool:
+    def update_solution(self, solution_id: str, **kwargs: Any) -> bool:
         """更新解决方案"""
         sol = self._solutions.get(solution_id)
         if not sol:
@@ -101,7 +101,7 @@ class SolutionMemory:
         self._save_solutions()
         return True
 
-    def increment_success_count(self, solution_id: str) -&gt; bool:
+    def increment_success_count(self, solution_id: str) -> bool:
         """增加成功计数"""
         sol = self._solutions.get(solution_id)
         if sol:
@@ -110,7 +110,7 @@ class SolutionMemory:
             return True
         return False
 
-    def delete_solution(self, solution_id: str) -&gt; bool:
+    def delete_solution(self, solution_id: str) -> bool:
         """删除解决方案"""
         if solution_id in self._solutions:
             del self._solutions[solution_id]
@@ -123,7 +123,7 @@ class SolutionMemory:
         query: str,
         tags: Optional[List[str]] = None,
         limit: int = 10,
-    ) -&gt; List[Solution]:
+    ) -> List[Solution]:
         """搜索解决方案"""
         results = []
         query_lower = query.lower()
@@ -140,15 +140,15 @@ class SolutionMemory:
         results.sort(key=lambda x: x.success_count, reverse=True)
         return results[:limit]
 
-    def list_all_solutions(self) -&gt; List[Solution]:
+    def list_all_solutions(self) -> List[Solution]:
         """列出所有解决方案"""
         return list(self._solutions.values())
 
-    def get_solutions_by_tag(self, tag: str) -&gt; List[Solution]:
+    def get_solutions_by_tag(self, tag: str) -> List[Solution]:
         """按标签获取解决方案"""
         return [sol for sol in self._solutions.values() if tag in sol.tags]
 
-    def get_all_tags(self) -&gt; List[str]:
+    def get_all_tags(self) -> List[str]:
         """获取所有标签"""
         tags = set()
         for sol in self._solutions.values():

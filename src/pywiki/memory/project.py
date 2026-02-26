@@ -44,11 +44,11 @@ class ProjectMemory:
         self._context: Optional[ProjectContext] = None
         self._load_context()
 
-    def _get_context_path(self) -&gt; Path:
+    def _get_context_path(self) -> Path:
         safe_name = self.project_name.replace("/", "_").replace("\\", "_")
         return self.storage_path / f"project_{safe_name}.json"
 
-    def _load_context(self) -&gt; None:
+    def _load_context(self) -> None:
         context_path = self._get_context_path()
         if context_path.exists():
             try:
@@ -65,7 +65,7 @@ class ProjectMemory:
         else:
             self._context = ProjectContext(project_name=self.project_name)
 
-    def _save_context(self) -&gt; None:
+    def _save_context(self) -> None:
         if self._context:
             self._context.last_updated = datetime.now().isoformat()
             context_path = self._get_context_path()
@@ -73,13 +73,13 @@ class ProjectMemory:
             with open(context_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
-    def get_context(self) -&gt; ProjectContext:
+    def get_context(self) -> ProjectContext:
         """获取项目上下文"""
         if self._context is None:
             self._load_context()
         return self._context
 
-    def update_context(self, **kwargs: Any) -&gt; None:
+    def update_context(self, **kwargs: Any) -> None:
         """更新项目上下文"""
         if self._context is None:
             self._load_context()
@@ -97,7 +97,7 @@ class ProjectMemory:
         decision: str,
         consequences: str,
         decision_id: Optional[str] = None,
-    ) -&gt; ArchitectureDecision:
+    ) -> ArchitectureDecision:
         """添加架构决策"""
         if self._context is None:
             self._load_context()
@@ -115,7 +115,7 @@ class ProjectMemory:
         self._save_context()
         return adr
 
-    def get_architecture_decision(self, decision_id: str) -&gt; Optional[ArchitectureDecision]:
+    def get_architecture_decision(self, decision_id: str) -> Optional[ArchitectureDecision]:
         """获取架构决策"""
         if self._context is None:
             self._load_context()
@@ -125,7 +125,7 @@ class ProjectMemory:
                 return adr
         return None
 
-    def list_architecture_decisions(self, status: Optional[str] = None) -&gt; List[ArchitectureDecision]:
+    def list_architecture_decisions(self, status: Optional[str] = None) -> List[ArchitectureDecision]:
         """列出架构决策"""
         if self._context is None:
             self._load_context()
@@ -135,7 +135,7 @@ class ProjectMemory:
             decisions = [d for d in decisions if d.status == status]
         return decisions
 
-    def set_custom_note(self, key: str, value: Any) -&gt; None:
+    def set_custom_note(self, key: str, value: Any) -> None:
         """设置自定义备注"""
         if self._context is None:
             self._load_context()
@@ -143,7 +143,7 @@ class ProjectMemory:
         self._context.custom_notes[key] = value
         self._save_context()
 
-    def get_custom_note(self, key: str, default: Any = None) -&gt; Any:
+    def get_custom_note(self, key: str, default: Any = None) -> Any:
         """获取自定义备注"""
         if self._context is None:
             self._load_context()
