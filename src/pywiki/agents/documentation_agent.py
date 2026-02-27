@@ -22,6 +22,9 @@ from pywiki.generators.docs.config_generator import ConfigGenerator
 from pywiki.generators.docs.development_generator import DevelopmentGenerator
 from pywiki.generators.docs.database_generator import DatabaseGenerator
 from pywiki.generators.docs.tsd_generator import TSDGenerator
+from pywiki.generators.docs.implicit_knowledge_generator import ImplicitKnowledgeGenerator
+from pywiki.generators.docs.test_coverage_generator import TestCoverageGenerator
+from pywiki.generators.docs.code_quality_generator import CodeQualityGenerator
 from pywiki.config.models import Language
 from pywiki.monitor.logger import logger
 
@@ -54,6 +57,7 @@ class DocGenerationResult:
     success: bool
     generated_files: list[Path] = field(default_factory=list)
     failed_docs: list[str] = field(default_factory=list)
+    skipped_docs: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
     error: Optional[str] = None
 
@@ -74,6 +78,8 @@ class DocumentationAgent(BaseAgent):
         self._generators: dict[DocType, BaseAgent] = {}
         self._progress = DocGenerationProgress()
         self._progress_callback: Optional[Callable[[DocGenerationProgress], None]] = None
+        self._cache_enabled: bool = True
+        self._max_concurrent: int = 5
         logger.debug("DocumentationAgent 初始化完成")
 
     def get_system_prompt(self) -> str:
@@ -95,6 +101,14 @@ class DocumentationAgent(BaseAgent):
         if self._progress_callback:
             self._progress_callback(self._progress)
 
+    def set_cache_enabled(self, enabled: bool) -> None:
+        """设置是否启用缓存"""
+        self._cache_enabled = enabled
+
+    def set_max_concurrent(self, max_concurrent: int) -> None:
+        """设置最大并发数"""
+        self._max_concurrent = max_concurrent
+
     async def execute(self, context: AgentContext) -> AgentResult:
         """执行文档生成"""
         logger.info(f"DocumentationAgent 开始执行: project={context.project_name}")
@@ -110,8 +124,9 @@ class DocumentationAgent(BaseAgent):
             output_dir = context.metadata.get("output_dir", Path(".python-wiki/repowiki"))
             language = context.metadata.get("language", Language.ZH)
             llm_client = context.metadata.get("llm_client") or self.llm_client
+            incremental = context.metadata.get("incremental", False)
 
-            logger.info(f"文档生成参数: types={[d.value for d in doc_types]}, language={language}")
+            logger.info(f"文档生成参数: types={[d.value for d in doc_types]}, language={language}, incremental={incremental}")
 
             self._progress.status = DocGenerationStatus.GENERATING
             self._progress.total_docs = len(doc_types)
@@ -123,6 +138,7 @@ class DocumentationAgent(BaseAgent):
                 output_dir=output_dir,
                 language=language,
                 llm_client=llm_client,
+                incremental=incremental,
             )
 
             self._progress.status = DocGenerationStatus.COMPLETED
@@ -133,13 +149,15 @@ class DocumentationAgent(BaseAgent):
 
             logger.info(
                 f"DocumentationAgent 执行完成: "
-                f"成功={len(results.generated_files)}, 失败={len(results.failed_docs)}, 耗时={duration:.2f}s"
+                f"成功={len(results.generated_files)}, 失败={len(results.failed_docs)}, "
+                f"跳过={len(results.skipped_docs)}, 耗时={duration:.2f}s"
             )
 
             self._record_execution(context, AgentResult.success_result(
                 data={
                     "generated_files": [str(p) for p in results.generated_files],
                     "failed_docs": results.failed_docs,
+                    "skipped_docs": results.skipped_docs,
                     "duration_seconds": duration,
                 },
                 message=f"成功生成 {len(results.generated_files)} 个文档",
@@ -151,6 +169,7 @@ class DocumentationAgent(BaseAgent):
                 data={
                     "generated_files": [str(p) for p in results.generated_files],
                     "failed_docs": results.failed_docs,
+                    "skipped_docs": results.skipped_docs,
                     "duration_seconds": duration,
                 },
                 message=f"成功生成 {len(results.generated_files)} 个文档",
@@ -176,8 +195,9 @@ class DocumentationAgent(BaseAgent):
         output_path: Path,
         language: Language,
         llm_client: Any,
-    ) -> tuple[DocType, Optional[Path], Optional[str]]:
-        """生成单个文档，返回 (doc_type, file_path, error)"""
+        incremental: bool = False,
+    ) -> tuple[DocType, Optional[Path], Optional[str], bool]:
+        """生成单个文档，返回 (doc_type, file_path, error, skipped)"""
         logger.debug(f"开始生成文档: {doc_type.value}")
         try:
             doc_context = DocGeneratorContext(
@@ -193,17 +213,28 @@ class DocumentationAgent(BaseAgent):
 
             if doc_result.success:
                 file_path = output_path / doc_result.file_path.name
+                
+                if incremental and self._cache_enabled:
+                    if not doc_context.needs_regeneration(doc_type, doc_result.content):
+                        logger.debug(f"文档未变更，跳过写入: {doc_type.value}")
+                        return (doc_type, file_path, None, True)
+                
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(doc_result.content, encoding="utf-8")
+                
+                if self._cache_enabled:
+                    content_hash = doc_context.compute_content_hash(doc_result.content)
+                    doc_context.save_cached_hash(doc_type, content_hash)
+                
                 logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
-                return (doc_type, file_path, None)
+                return (doc_type, file_path, None, False)
             else:
                 logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}")
-                return (doc_type, None, doc_result.message)
+                return (doc_type, None, doc_result.message, False)
 
         except Exception as e:
             logger.log_exception(f"文档生成异常: {doc_type.value}", e)
-            return (doc_type, None, str(e))
+            return (doc_type, None, str(e), False)
 
     async def _generate_all_docs(
         self,
@@ -212,6 +243,7 @@ class DocumentationAgent(BaseAgent):
         output_dir: Path,
         language: Language,
         llm_client: Any,
+        incremental: bool = False,
     ) -> DocGenerationResult:
         """并发生成所有文档"""
         result = DocGenerationResult(success=True)
@@ -220,9 +252,9 @@ class DocumentationAgent(BaseAgent):
         logger.debug(f"文档输出路径: {output_path}")
         generators = self._get_generators(language)
 
-        semaphore = asyncio.Semaphore(3)
+        semaphore = asyncio.Semaphore(self._max_concurrent)
 
-        async def generate_with_semaphore(doc_type: DocType) -> tuple[DocType, Optional[Path], Optional[str]]:
+        async def generate_with_semaphore(doc_type: DocType) -> tuple[DocType, Optional[Path], Optional[str], bool]:
             async with semaphore:
                 self._progress.current_doc = doc_type.value
                 self._notify_progress()
@@ -230,10 +262,10 @@ class DocumentationAgent(BaseAgent):
                 generator = generators.get(doc_type)
                 if not generator:
                     logger.warning(f"未找到文档生成器: {doc_type.value}")
-                    return (doc_type, None, f"未找到生成器: {doc_type.value}")
+                    return (doc_type, None, f"未找到生成器: {doc_type.value}", False)
                 
                 return await self._generate_single_doc(
-                    doc_type, generator, context, output_path, language, llm_client
+                    doc_type, generator, context, output_path, language, llm_client, incremental
                 )
 
         tasks = [generate_with_semaphore(doc_type) for doc_type in doc_types]
@@ -246,9 +278,12 @@ class DocumentationAgent(BaseAgent):
                 self._progress.errors.append(f"{doc_type.value}: {str(res)}")
                 logger.error(f"文档生成异常: {doc_type.value} - {res}")
             else:
-                doc_type_result, file_path, error = res
+                doc_type_result, file_path, error, skipped = res
                 if file_path:
-                    result.generated_files.append(file_path)
+                    if skipped:
+                        result.skipped_docs.append(doc_type_result.value)
+                    else:
+                        result.generated_files.append(file_path)
                     self._progress.completed_docs.append(doc_type_result.value)
                 else:
                     result.failed_docs.append(doc_type_result.value)
@@ -257,8 +292,11 @@ class DocumentationAgent(BaseAgent):
             
             self._notify_progress()
 
-        result.success = len(result.generated_files) > 0
-        logger.info(f"文档生成汇总: 成功={len(result.generated_files)}, 失败={len(result.failed_docs)}")
+        result.success = len(result.generated_files) > 0 or len(result.skipped_docs) > 0
+        logger.info(
+            f"文档生成汇总: 成功={len(result.generated_files)}, "
+            f"失败={len(result.failed_docs)}, 跳过={len(result.skipped_docs)}"
+        )
         return result
 
     def _get_generators(self, language: Language) -> dict[DocType, Any]:
@@ -274,6 +312,9 @@ class DocumentationAgent(BaseAgent):
             DocType.DEVELOPMENT: DevelopmentGenerator(language=language),
             DocType.DATABASE: DatabaseGenerator(language=language),
             DocType.TSD: TSDGenerator(language=language),
+            DocType.IMPLICIT_KNOWLEDGE: ImplicitKnowledgeGenerator(language=language),
+            DocType.TEST_COVERAGE: TestCoverageGenerator(language=language),
+            DocType.CODE_QUALITY: CodeQualityGenerator(language=language),
         }
 
     async def generate_single_doc(
@@ -311,6 +352,11 @@ class DocumentationAgent(BaseAgent):
                 file_path = output_path / doc_result.file_path.name
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(doc_result.content, encoding="utf-8")
+                
+                if self._cache_enabled:
+                    content_hash = doc_context.compute_content_hash(doc_result.content)
+                    doc_context.save_cached_hash(doc_type, content_hash)
+                
                 logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
 
                 return AgentResult.success_result(
@@ -339,8 +385,74 @@ class DocumentationAgent(BaseAgent):
             {"type": DocType.DEVELOPMENT.value, "description": "开发指南"},
             {"type": DocType.DATABASE.value, "description": "数据库文档"},
             {"type": DocType.TSD.value, "description": "技术设计文档"},
+            {"type": DocType.IMPLICIT_KNOWLEDGE.value, "description": "隐性知识文档"},
+            {"type": DocType.TEST_COVERAGE.value, "description": "测试覆盖分析"},
+            {"type": DocType.CODE_QUALITY.value, "description": "代码质量分析"},
         ]
 
     def get_progress(self) -> DocGenerationProgress:
         """获取当前进度"""
         return self._progress
+
+    async def generate_incremental(
+        self,
+        context: AgentContext,
+        changed_files: list[str],
+        language: Language = Language.ZH,
+    ) -> AgentResult:
+        """增量生成文档
+        
+        Args:
+            context: Agent 上下文
+            changed_files: 变更的文件列表
+            language: 文档语言
+        """
+        logger.info(f"增量文档生成: 变更文件数={len(changed_files)}")
+        
+        affected_doc_types = self._analyze_affected_docs(changed_files)
+        
+        if not affected_doc_types:
+            logger.info("没有需要更新的文档")
+            return AgentResult.success_result(
+                data={"updated_docs": []},
+                message="没有需要更新的文档",
+                confidence=1.0,
+            )
+        
+        context.metadata["doc_types"] = affected_doc_types
+        context.metadata["incremental"] = True
+        
+        return await self.execute(context)
+
+    def _analyze_affected_docs(self, changed_files: list[str]) -> list[DocType]:
+        """分析受影响的文档类型"""
+        affected = set()
+        
+        for file_path in changed_files:
+            file_lower = file_path.lower()
+            
+            if any(ext in file_lower for ext in [".py", ".java", ".ts", ".tsx", ".js"]):
+                affected.add(DocType.OVERVIEW)
+                affected.add(DocType.API)
+                affected.add(DocType.MODULE)
+                affected.add(DocType.ARCHITECTURE)
+                affected.add(DocType.IMPLICIT_KNOWLEDGE)
+                affected.add(DocType.CODE_QUALITY)
+            
+            if "test" in file_lower:
+                affected.add(DocType.TEST_COVERAGE)
+            
+            if any(name in file_lower for name in ["config", "settings", ".env"]):
+                affected.add(DocType.CONFIGURATION)
+            
+            if any(name in file_lower for name in ["requirements", "pom.xml", "package.json", "build.gradle"]):
+                affected.add(DocType.DEPENDENCIES)
+                affected.add(DocType.TECH_STACK)
+            
+            if any(name in file_lower for name in ["readme", "contributing", "changelog"]):
+                affected.add(DocType.DEVELOPMENT)
+            
+            if any(name in file_lower for name in ["model", "schema", "entity", "migration"]):
+                affected.add(DocType.DATABASE)
+        
+        return list(affected)

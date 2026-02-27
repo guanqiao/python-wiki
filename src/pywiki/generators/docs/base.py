@@ -2,6 +2,8 @@
 文档生成器基类
 """
 
+import hashlib
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,6 +29,9 @@ class DocType(str, Enum):
     DEVELOPMENT = "development"
     DEPENDENCIES = "dependencies"
     TSD = "tsd"
+    IMPLICIT_KNOWLEDGE = "implicit-knowledge"
+    TEST_COVERAGE = "test-coverage"
+    CODE_QUALITY = "code-quality"
 
 
 @dataclass
@@ -112,8 +117,91 @@ class DocGeneratorContext:
             DocType.DEVELOPMENT: self.output_dir / "development" / "getting-started.md",
             DocType.DEPENDENCIES: self.output_dir / "dependencies" / "external.md",
             DocType.TSD: self.output_dir / "tsd" / "design-decisions.md",
+            DocType.IMPLICIT_KNOWLEDGE: self.output_dir / "implicit-knowledge.md",
+            DocType.TEST_COVERAGE: self.output_dir / "test-coverage.md",
+            DocType.CODE_QUALITY: self.output_dir / "code-quality.md",
         }
         return path_map.get(doc_type, self.output_dir / f"{doc_type.value}.md")
+    
+    def get_cache_path(self) -> Path:
+        """获取缓存目录路径"""
+        return self.output_dir / ".cache"
+    
+    def compute_content_hash(self, content: str) -> str:
+        """计算内容哈希"""
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
+    
+    def load_cached_hash(self, doc_type: DocType) -> Optional[str]:
+        """加载缓存的哈希值"""
+        cache_path = self.get_cache_path() / f"{doc_type.value}.hash"
+        if cache_path.exists():
+            return cache_path.read_text().strip()
+        return None
+    
+    def save_cached_hash(self, doc_type: DocType, content_hash: str) -> None:
+        """保存内容哈希到缓存"""
+        cache_path = self.get_cache_path() / f"{doc_type.value}.hash"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(content_hash)
+    
+    def needs_regeneration(self, doc_type: DocType, new_content: str) -> bool:
+        """检查文档是否需要重新生成"""
+        output_path = self.get_output_path(doc_type)
+        
+        if not output_path.exists():
+            return True
+        
+        cached_hash = self.load_cached_hash(doc_type)
+        if cached_hash is None:
+            return True
+        
+        new_hash = self.compute_content_hash(new_content)
+        return cached_hash != new_hash
+    
+    def get_changed_modules(self, old_parse_result: Optional[ParseResult], new_parse_result: ParseResult) -> set[str]:
+        """获取变更的模块"""
+        if old_parse_result is None:
+            return {m.name for m in new_parse_result.modules}
+        
+        old_modules = {m.name: m for m in old_parse_result.modules}
+        new_modules = {m.name: m for m in new_parse_result.modules}
+        
+        changed = set()
+        
+        for name in new_modules:
+            if name not in old_modules:
+                changed.add(name)
+            else:
+                old_module = old_modules[name]
+                new_module = new_modules[name]
+                
+                if self._module_changed(old_module, new_module):
+                    changed.add(name)
+        
+        for name in old_modules:
+            if name not in new_modules:
+                changed.add(name)
+        
+        return changed
+    
+    def _module_changed(self, old_module: ModuleInfo, new_module: ModuleInfo) -> bool:
+        """检查模块是否变更"""
+        if len(old_module.classes) != len(new_module.classes):
+            return True
+        if len(old_module.functions) != len(new_module.functions):
+            return True
+        
+        old_class_names = {c.name for c in old_module.classes}
+        new_class_names = {c.name for c in new_module.classes}
+        if old_class_names != new_class_names:
+            return True
+        
+        old_func_names = {f.name for f in old_module.functions}
+        new_func_names = {f.name for f in new_module.functions}
+        if old_func_names != new_func_names:
+            return True
+        
+        return False
 
 
 class BaseDocGenerator(ABC):
