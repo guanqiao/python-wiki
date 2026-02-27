@@ -21,6 +21,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont, QTextCursor
 
+from pywiki.monitor.logger import logger
+
 
 class QAAgent(QThread):
     """问答处理线程"""
@@ -40,18 +42,24 @@ class QAAgent(QThread):
         self.vector_store = vector_store
         self.llm_client = llm_client
         self.wiki_dir = wiki_dir
+        logger.debug(f"QAAgent 初始化: 问题长度={len(question)}")
     
     def run(self):
+        logger.info(f"开始处理问答请求: {self.question[:50]}...")
         try:
             context = ""
             
             if self.vector_store:
+                logger.debug("正在搜索向量存储...")
                 search_results = self.vector_store.search(self.question, k=5)
                 if search_results:
                     context = "\n\n".join([
                         f"相关文档 {i+1}:\n{result['content']}"
                         for i, result in enumerate(search_results)
                     ])
+                    logger.debug(f"找到 {len(search_results)} 个相关文档")
+                else:
+                    logger.debug("未找到相关文档")
             
             system_prompt = """你是一个专业的代码文档助手。请基于提供的上下文回答用户的问题。
 如果上下文中没有相关信息，请诚实地说明。回答要清晰、准确、专业。"""
@@ -63,9 +71,12 @@ class QAAgent(QThread):
 
 请回答用户的问题。"""
             
+            logger.debug("正在调用 LLM 生成回答...")
             answer = self.llm_client.generate(prompt, system_prompt=system_prompt)
+            logger.info(f"问答处理完成: 回答长度={len(answer)}")
             self.answer_ready.emit(answer)
         except Exception as e:
+            logger.log_exception("问答处理失败", e)
             self.error_occurred.emit(str(e))
 
 
@@ -180,10 +191,10 @@ class QAPanel(QWidget):
             prefix = "🤖"
         
         html = f"""
-        &lt;div style="margin: 10px 0; padding: 10px; border-radius: 5px; background-color: #f5f5f5;"&gt;
-            &lt;span style="font-weight: bold; color: {color};"&gt;{prefix}&lt;/span&gt;
-            &lt;div style="margin-top: 5px; white-space: pre-wrap;"&gt;{message}&lt;/div&gt;
-        &lt;/div&gt;
+        <div style="margin: 10px 0; padding: 10px; border-radius: 5px; background-color: #f5f5f5;">
+            <span style="font-weight: bold; color: {color};">{prefix}</span>
+            <div style="margin-top: 5px; white-space: pre-wrap;">{message}</div>
+        </div>
         """
         
         cursor.insertHtml(html)
@@ -196,8 +207,11 @@ class QAPanel(QWidget):
             return
         
         if not self.llm_client:
+            logger.warning("问答请求失败: LLM 客户端未配置")
             self._append_system_message("请先配置 LLM 客户端")
             return
+        
+        logger.info(f"发送问题: {question[:100]}...")
         
         self.question_input.clear()
         self.question_input.setEnabled(False)
@@ -216,7 +230,7 @@ class QAPanel(QWidget):
         self.agent.answer_ready.connect(self._on_answer_ready)
         self.agent.error_occurred.connect(self._on_error)
         self.agent.start()
-    
+
     def _display_sources(self, question: str):
         """显示参考来源"""
         if not self.vector_store:
@@ -231,7 +245,9 @@ class QAPanel(QWidget):
                     sources_text += f"{result['content'][:300]}...\n\n"
                 
                 self.sources_display.setText(sources_text)
+                logger.debug(f"显示 {len(results)} 个参考来源")
         except Exception as e:
+            logger.log_exception("获取参考来源失败", e)
             self.sources_display.setText(f"获取来源失败: {str(e)}")
     
     @pyqtSlot(str)

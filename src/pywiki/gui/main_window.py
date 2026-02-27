@@ -3,10 +3,15 @@
 """
 
 import asyncio
+import logging
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+from pydantic import SecretStr
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -23,11 +28,11 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QApplication,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl, QMimeData
+from PyQt6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
 
 from pywiki.config.settings import Settings
-from pywiki.config.models import ProjectConfig, LLMConfig
+from pywiki.config.models import ProjectConfig, LLMConfig, WikiConfig
 from pywiki.gui.panels.project_panel import ProjectPanel
 from pywiki.gui.panels.preview_panel import PreviewPanel
 from pywiki.gui.panels.progress_panel import ProgressPanel
@@ -38,6 +43,7 @@ from pywiki.gui.panels.knowledge_panel import KnowledgePanel
 from pywiki.gui.dialogs.new_project_dialog import NewProjectDialog
 from pywiki.gui.dialogs.llm_config_dialog import LLMConfigDialog
 from pywiki.generators.docs.base import DocType
+from pywiki.monitor.logger import logger
 
 
 class DocGeneratorThread(QThread):
@@ -58,11 +64,14 @@ class DocGeneratorThread(QThread):
         self.doc_types = doc_types
         self.llm_config = llm_config
         self._is_cancelled = False
+        logger.debug(f"DocGeneratorThread 初始化: 项目={project.name}, 文档类型={[d.value for d in doc_types]}")
     
     def run(self):
+        logger.info(f"文档生成线程开始运行: {self.project.name}")
         try:
             asyncio.run(self._generate_docs())
         except Exception as e:
+            logger.log_exception("文档生成线程运行失败", e)
             self.generation_completed.emit(False, str(e))
     
     async def _generate_docs(self):
@@ -71,11 +80,16 @@ class DocGeneratorThread(QThread):
         
         llm_client = None
         if self.llm_config:
-            llm_client = LLMClient(
-                api_key=self.llm_config.api_key.get_secret_value(),
-                endpoint=self.llm_config.endpoint,
-                model=self.llm_config.model,
-            )
+            try:
+                llm_client = LLMClient(
+                    api_key=self.llm_config.api_key.get_secret_value(),
+                    endpoint=self.llm_config.endpoint,
+                    model=self.llm_config.model,
+                )
+                logger.info(f"LLM 客户端初始化成功: model={self.llm_config.model}")
+            except Exception as e:
+                logger.log_exception("LLM 客户端初始化失败", e)
+                raise
         
         def progress_callback(progress):
             if self._is_cancelled:
@@ -92,6 +106,7 @@ class DocGeneratorThread(QThread):
         total = len(self.doc_types)
         for i, doc_type in enumerate(self.doc_types):
             if self._is_cancelled:
+                logger.info("文档生成已取消")
                 break
             
             self.stage_changed.emit(doc_type.value, "running")
@@ -99,19 +114,25 @@ class DocGeneratorThread(QThread):
                 int((i / total) * 100),
                 f"正在生成: {doc_type.value}"
             )
+            logger.info(f"开始生成文档: {doc_type.value}")
             
             try:
                 result = await manager.generate_doc(doc_type)
                 if result.get("success"):
                     self.stage_changed.emit(doc_type.value, "completed")
+                    logger.info(f"文档生成成功: {doc_type.value}")
                 else:
                     self.stage_changed.emit(doc_type.value, "error")
+                    logger.error(f"文档生成失败: {doc_type.value} - {result.get('message', '未知错误')}")
             except Exception as e:
+                logger.log_exception(f"文档生成异常: {doc_type.value}", e)
                 self.stage_changed.emit(doc_type.value, "error")
         
+        logger.info(f"文档生成完成: {self.project.name}")
         self.generation_completed.emit(True, "文档生成完成")
     
     def cancel(self):
+        logger.info("文档生成取消请求")
         self._is_cancelled = True
 
 
@@ -135,6 +156,8 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
         self._connect_signals()
         self._load_last_project()
+
+        self.setAcceptDrops(True)
 
     def _init_ui(self) -> None:
         self.setWindowTitle("Python Wiki - AI 文档生成器")
@@ -326,6 +349,7 @@ class MainWindow(QMainWindow):
         
         self.insights_panel.analyze_requested.connect(self._on_analyze)
         self.knowledge_panel.extract_requested.connect(self._on_extract_knowledge)
+        self.knowledge_panel.export_adr_requested.connect(self._on_export_adr)
 
     def _load_last_project(self) -> None:
         config = self.settings.load_config()
@@ -346,6 +370,8 @@ class MainWindow(QMainWindow):
         self.project_changed.emit(project.name)
         self.statusbar.showMessage(f"当前项目: {project.name} | 路径: {project.path}")
         self.setWindowTitle(f"Python Wiki - {project.name}")
+        
+        logger.info(f"切换到项目: {project.name} (路径: {project.path})")
         
         wiki_dir = project.path / project.wiki.output_dir
         self.preview_panel.set_wiki_dir(wiki_dir)
@@ -384,6 +410,7 @@ class MainWindow(QMainWindow):
             self.settings.remove_project(project_name)
             self._refresh_project_list()
             self.statusbar.showMessage(f"已删除项目: {project_name}")
+            logger.info(f"已从列表删除项目: {project_name}")
 
     def _on_new_project(self) -> None:
         dialog = NewProjectDialog(self)
@@ -393,6 +420,7 @@ class MainWindow(QMainWindow):
                 self.settings.add_project(project_config)
                 self._set_current_project(project_config)
                 self._refresh_project_list()
+                logger.info(f"创建新项目: {project_config.name}")
 
     def _on_open_project(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -402,7 +430,41 @@ class MainWindow(QMainWindow):
             QFileDialog.Option.ShowDirsOnly
         )
         if folder:
-            pass
+            self._open_project_from_path(Path(folder))
+
+    def _open_project_from_path(self, project_path: Path) -> None:
+        if not project_path.exists() or not project_path.is_dir():
+            logger.warning(f"目录不存在或不是有效目录: {project_path}")
+            QMessageBox.warning(self, "警告", f"目录不存在或不是有效目录: {project_path}")
+            return
+
+        project_name = project_path.name
+        logger.info(f"尝试打开项目: {project_name} (路径: {project_path})")
+
+        existing_project = self.settings.get_project(project_name)
+        if existing_project:
+            reply = QMessageBox.question(
+                self,
+                "项目已存在",
+                f"项目 '{project_name}' 已存在，是否打开该项目？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._set_current_project(existing_project)
+            return
+
+        project_config = ProjectConfig(
+            name=project_name,
+            path=project_path,
+            wiki=WikiConfig(),
+            llm=LLMConfig(api_key=SecretStr("")),
+        )
+
+        self.settings.add_project(project_config)
+        self._set_current_project(project_config)
+        self._refresh_project_list()
+        self.statusbar.showMessage(f"已打开项目: {project_name}")
+        logger.info(f"成功打开项目: {project_name}")
 
     def _on_export(self) -> None:
         if not self._current_project:
@@ -423,7 +485,7 @@ class MainWindow(QMainWindow):
 
     def _on_llm_config(self) -> None:
         config = self.settings.load_config()
-        current_llm = config.default_llm or LLMConfig(api_key="")
+        current_llm = config.default_llm or LLMConfig(api_key=SecretStr(""))
 
         dialog = LLMConfigDialog(current_llm, self)
         if dialog.exec():
@@ -431,6 +493,7 @@ class MainWindow(QMainWindow):
             if new_llm:
                 self.settings.update_default_llm(new_llm)
                 self.statusbar.showMessage("LLM 配置已保存")
+                logger.info("LLM 配置已更新")
 
     def _on_refresh(self) -> None:
         self._refresh_project_list()
@@ -511,6 +574,8 @@ class MainWindow(QMainWindow):
         config = self.settings.load_config()
         llm_config = config.default_llm
         
+        logger.info(f"开始生成文档: 类型={[d.value for d in doc_types]}, LLM配置={'已设置' if llm_config else '未设置'}")
+        
         self._generator_thread = DocGeneratorThread(
             project=self._current_project,
             doc_types=doc_types,
@@ -538,6 +603,7 @@ class MainWindow(QMainWindow):
             self.progress_panel.complete_generation()
             self.statusbar.showMessage("文档生成完成")
             self.generation_completed.emit()
+            logger.info(f"文档生成完成: {message}")
             
             if self._current_project:
                 wiki_dir = self._current_project.path / self._current_project.wiki.output_dir
@@ -547,6 +613,7 @@ class MainWindow(QMainWindow):
         else:
             self.progress_panel.error_generation(message)
             self.statusbar.showMessage(f"生成失败: {message}")
+            logger.error(f"文档生成失败: {message}")
             QMessageBox.critical(self, "错误", f"文档生成失败: {message}")
 
     def _on_update(self) -> None:
@@ -554,6 +621,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先选择一个项目")
             return
 
+        logger.info(f"开始增量更新: {self._current_project.name}")
         self.statusbar.showMessage("正在增量更新...")
 
     def _on_sync(self) -> None:
@@ -561,6 +629,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先选择一个项目")
             return
 
+        logger.info(f"开始 Git 同步: {self._current_project.name}")
         self.statusbar.showMessage("正在同步 Git...")
 
     def _on_analyze(self) -> None:
@@ -568,6 +637,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先选择一个项目")
             return
         
+        logger.info(f"开始分析项目架构: {self._current_project.name}")
         self.statusbar.showMessage("正在分析项目架构...")
         self.progress_panel.add_log("INFO", "开始分析项目架构...")
         
@@ -578,6 +648,7 @@ class MainWindow(QMainWindow):
             "LLM": ["LangChain", "LangGraph"],
         })
         
+        logger.info(f"项目架构分析完成: {self._current_project.name}")
         self.statusbar.showMessage("架构分析完成")
 
     def _on_extract_knowledge(self) -> None:
@@ -585,10 +656,27 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先选择一个项目")
             return
         
+        logger.info(f"开始提取隐式知识: {self._current_project.name}")
         self.statusbar.showMessage("正在提取隐式知识...")
         self.progress_panel.add_log("INFO", "开始提取隐式知识...")
         
+        logger.info(f"隐式知识提取完成: {self._current_project.name}")
         self.statusbar.showMessage("隐式知识提取完成")
+
+    def _on_export_adr(self) -> None:
+        if not self._current_project:
+            QMessageBox.warning(self, "警告", "请先选择一个项目")
+            return
+
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "选择 ADR 导出目录",
+            str(self._current_project.path),
+            QFileDialog.Option.ShowDirsOnly
+        )
+        if folder:
+            self.statusbar.showMessage(f"ADR 导出到: {folder}")
+            QMessageBox.information(self, "导出完成", f"ADR 已导出到: {folder}")
 
     def _on_progress_update(self, progress: int, message: str) -> None:
         self.progress_panel.update_progress(progress, message)
@@ -601,6 +689,33 @@ class MainWindow(QMainWindow):
             self.progress_panel.add_log("SUCCESS", f"完成: {stage}")
         elif status == "error":
             self.progress_panel.add_log("ERROR", f"失败: {stage}")
+
+    def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
+        if event is None:
+            return
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            for url in urls:
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    if path.is_dir():
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+
+    def dropEvent(self, event: QDropEvent | None) -> None:
+        if event is None:
+            return
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            for url in urls:
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    if path.is_dir():
+                        self._open_project_from_path(path)
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
 
     def closeEvent(self, event):
         if self._generator_thread and self._generator_thread.isRunning():

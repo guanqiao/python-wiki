@@ -13,7 +13,7 @@ from collections import defaultdict
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from pywiki.parsers.models import ModuleInfo, ClassInfo, FunctionInfo
+from pywiki.parsers import ModuleInfo, ClassInfo, FunctionInfo
 
 
 @dataclass
@@ -82,7 +82,7 @@ class CodeSearchEngine:
 
     async def _index_module(self, module: ModuleInfo) -> None:
         """索引单个模块"""
-        module_path = module.path
+        module_path = str(module.file_path)
 
         # 文件级索引
         self.index.file_index[module_path] = {

@@ -252,6 +252,8 @@ class JavaParser(BaseParser):
                         class_info.nested_classes.append(nested)
 
         class_info = self._analyze_spring_features(class_info, annotations, source)
+        class_info = self._analyze_lombok_features(class_info, annotations)
+        class_info = self._analyze_jpa_features(class_info, annotations, source)
 
         return class_info
 
@@ -381,7 +383,7 @@ class JavaParser(BaseParser):
                              "abstract", "synchronized", "volatile", "transient",
                              "native", "strictfp"):
                 modifiers.append(child.type)
-            elif child.type == "annotation":
+            elif child.type in ("annotation", "marker_annotation"):
                 ann_name = self._parse_annotation_name(child, source)
                 if ann_name:
                     annotations.append(ann_name)
@@ -668,20 +670,30 @@ class JavaParser(BaseParser):
 
         jpa_entity_annotations = self.JPA_ENTITY & set(annotations)
         if jpa_entity_annotations:
-            jpa_info.append(f"JPA: {', '.join(jpa_entity_annotations)}")
+            jpa_info.append("JPA Entity")
+            jpa_table = self._extract_jpa_table_name(source)
+            if jpa_table:
+                jpa_info.append(f"Table: {jpa_table}")
 
-        jpa_rel_annotations = self.JPA_RELATIONSHIP & set(annotations)
-        if jpa_rel_annotations:
+        all_jpa_rel = self.JPA_RELATIONSHIP & set(annotations)
+        source_jpa_rel = set()
+        for rel in self.JPA_RELATIONSHIP:
+            if f"@{rel}" in source:
+                source_jpa_rel.add(rel)
+
+        combined_rel = all_jpa_rel | source_jpa_rel
+        if combined_rel:
             relationships = []
-            if "OneToOne" in jpa_rel_annotations:
+            if "OneToOne" in combined_rel:
                 relationships.append("一对一")
-            if "OneToMany" in jpa_rel_annotations:
+            if "OneToMany" in combined_rel:
                 relationships.append("一对多")
-            if "ManyToOne" in jpa_rel_annotations:
+            if "ManyToOne" in combined_rel:
                 relationships.append("多对一")
-            if "ManyToMany" in jpa_rel_annotations:
+            if "ManyToMany" in combined_rel:
                 relationships.append("多对多")
-            jpa_info.append(f"关系: {', '.join(relationships)}")
+            if relationships:
+                jpa_info.append(f"关系: {', '.join(relationships)}")
 
         if jpa_info:
             existing_doc = class_info.docstring or ""

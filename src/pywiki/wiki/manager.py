@@ -17,6 +17,7 @@ from pywiki.generators.markdown import MarkdownGenerator
 from pywiki.wiki.storage import WikiStorage
 from pywiki.wiki.history import WikiHistory
 from pywiki.generators.docs.base import DocType, DocGeneratorContext
+from pywiki.monitor.logger import logger
 
 
 class GenerationStatus(str, Enum):
@@ -54,6 +55,8 @@ class WikiManager:
         self.wiki_config = project.wiki
         self.progress_callback = progress_callback
 
+        logger.info(f"WikiManager 初始化: 项目={project.name}, 路径={project.path}")
+
         self.parser = PythonParser(
             exclude_patterns=self.wiki_config.exclude_patterns,
             include_private=self.wiki_config.include_private,
@@ -72,6 +75,7 @@ class WikiManager:
 
     async def generate_full(self) -> bool:
         """生成完整 Wiki 文档"""
+        logger.info(f"开始生成完整 Wiki: {self.project.name}")
         self._progress = GenerationProgress(
             status=GenerationStatus.SCANNING,
             start_time=datetime.now()
@@ -86,16 +90,19 @@ class WikiManager:
 
             self._progress.status = GenerationStatus.COMPLETED
             self._notify_progress()
+            logger.info(f"Wiki 生成完成: {self.project.name}")
             return True
 
         except Exception as e:
             self._progress.status = GenerationStatus.ERROR
             self._progress.errors.append(str(e))
             self._notify_progress()
+            logger.log_exception(f"Wiki 生成失败: {self.project.name}", e)
             return False
 
     async def generate_incremental(self, changed_files: list[Path]) -> bool:
         """增量更新 Wiki 文档"""
+        logger.info(f"开始增量更新: {self.project.name}, 文件数={len(changed_files)}")
         self._progress = GenerationProgress(
             status=GenerationStatus.PARSING,
             start_time=datetime.now()
@@ -112,15 +119,18 @@ class WikiManager:
 
                 result = self.parser.parse_file(file_path)
                 await self._generate_module_docs(result.modules)
+                logger.debug(f"增量更新文件: {file_path}")
 
             self._progress.status = GenerationStatus.COMPLETED
             self._notify_progress()
+            logger.info(f"增量更新完成: {self.project.name}")
             return True
 
         except Exception as e:
             self._progress.status = GenerationStatus.ERROR
             self._progress.errors.append(str(e))
             self._notify_progress()
+            logger.log_exception(f"增量更新失败: {self.project.name}", e)
             return False
 
     async def _scan_project(self) -> None:
@@ -133,6 +143,7 @@ class WikiManager:
 
         self._progress.total_files = len(python_files)
         self._notify_progress()
+        logger.debug(f"项目扫描完成: 发现 {len(python_files)} 个 Python 文件")
 
     async def _parse_code(self) -> None:
         """解析代码"""
@@ -144,14 +155,17 @@ class WikiManager:
 
         self._progress.total_files = len(self._parse_result.modules)
         self._notify_progress()
+        logger.debug(f"代码解析完成: 发现 {len(self._parse_result.modules)} 个模块")
 
     async def _generate_documents(self) -> None:
         """生成文档"""
         self._progress.status = GenerationStatus.GENERATING
         self._progress.current_stage = "文档生成"
         self._notify_progress()
+        logger.info("开始生成文档...")
 
         if not self._parse_result:
+            logger.warning("解析结果为空，跳过文档生成")
             return
 
         modules = self._parse_result.modules
@@ -164,11 +178,13 @@ class WikiManager:
             doc_content = self.generator.generate_module_doc(module)
             doc_path = self.storage.get_module_path(module.name)
             await self.storage.save_document(doc_path, doc_content)
+            logger.debug(f"生成模块文档: {module.name}")
 
         if self.wiki_config.generate_diagrams:
             await self._generate_diagrams()
 
         await self._generate_index()
+        logger.info(f"文档生成完成: 共 {len(modules)} 个模块")
 
     async def _generate_diagrams(self) -> None:
         """生成图表"""
@@ -180,6 +196,7 @@ class WikiManager:
 
         self._progress.current_stage = "图表生成"
         self._notify_progress()
+        logger.info("开始生成图表...")
 
         if self._parse_result and self._parse_result.modules:
             arch_gen = ArchitectureDiagramGenerator()
@@ -194,6 +211,7 @@ class WikiManager:
                     arch_diagram
                 )
             )
+            logger.debug("生成架构图")
 
             class_gen = ClassDiagramGenerator()
             for module in self._parse_result.modules:
@@ -207,6 +225,9 @@ class WikiManager:
                     doc_path = self.storage.output_dir / "classes" / f"{cls.name}.md"
                     doc_path.parent.mkdir(parents=True, exist_ok=True)
                     await self.storage.save_document(doc_path, f"# {cls.name}\n\n{class_diagram}")
+                    logger.debug(f"生成类图: {cls.name}")
+        
+        logger.info("图表生成完成")
 
     async def _generate_index(self) -> None:
         """生成索引页"""
@@ -229,12 +250,14 @@ class WikiManager:
             self.storage.output_dir / "index.md",
             index_content
         )
+        logger.debug("生成索引页")
 
     async def _sync_to_git(self) -> None:
         """同步到 Git"""
         self._progress.status = GenerationStatus.SYNCING
         self._progress.current_stage = "Git 同步"
         self._notify_progress()
+        logger.info("开始 Git 同步...")
 
     def _notify_progress(self) -> None:
         if self.progress_callback:

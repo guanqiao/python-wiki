@@ -105,20 +105,44 @@ class TypeScriptParser(BaseParser):
         )
 
         if not script_match:
-            return None
+            return ModuleInfo(
+                name=file_path.stem,
+                file_path=file_path,
+                docstring="Vue Component (no script)",
+            )
 
         script_content = script_match.group(1).strip()
         is_ts = 'lang="ts"' in script_match.group(0)
 
         if is_ts:
-            module_info = self._parse_ts_file(script_content, file_path)
+            module_info = self._parse_ts_content(script_content, file_path, use_ts=True)
         else:
-            module_info = self._parse_ts_file(script_content, file_path, use_js=True)
+            module_info = self._parse_ts_content(script_content, file_path, use_ts=False)
 
         if module_info:
             module_info = self._extract_vue_info(source, module_info)
 
         return module_info
+
+    def _parse_ts_content(
+        self,
+        source: str,
+        file_path: Path,
+        use_ts: bool = True
+    ) -> Optional[ModuleInfo]:
+        """解析 TypeScript/JavaScript 内容"""
+        if use_ts and self._ts_lang:
+            parser = Parser(self._ts_lang)
+        elif not use_ts and self._js_lang:
+            parser = Parser(self._js_lang)
+        else:
+            return None
+
+        try:
+            tree = parser.parse(bytes(source, "utf-8"))
+            return self._parse_module(tree, source, file_path)
+        except Exception:
+            return None
 
     def _extract_vue_info(self, source: str, module_info: ModuleInfo) -> ModuleInfo:
         """提取 Vue 组件特有信息"""
@@ -150,10 +174,10 @@ class TypeScriptParser(BaseParser):
             props_type = props_match.group(1).strip()
             module_info.docstring = f"{module_info.docstring or ''}\nProps: {props_type}".strip()
 
-        props_options_match = re.search(r'props\s*:\s*\{([^}]+)\}', source, re.DOTALL)
+        props_options_match = re.search(r'props\s*:\s*\{((?:[^{}]|\{[^{}]*\})*)\}', source, re.DOTALL)
         if props_options_match and is_options_api:
             props_content = props_options_match.group(1).strip()
-            prop_names = re.findall(r'(\w+)\s*:', props_content)
+            prop_names = re.findall(r'(\w+)\s*:\s*\{', props_content)
             if prop_names:
                 module_info.docstring = f"{module_info.docstring or ''}\nProps: {', '.join(prop_names)}".strip()
 
@@ -186,14 +210,14 @@ class TypeScriptParser(BaseParser):
         if found_hooks:
             module_info.docstring = f"{module_info.docstring or ''}\n生命周期: {', '.join(found_hooks)}".strip()
 
-        computed_match = re.search(r'computed\s*:\s*\{([^}]+)\}', source, re.DOTALL)
+        computed_match = re.search(r'computed\s*:\s*\{((?:[^{}]|\{[^{}]*\})*)\}', source, re.DOTALL)
         if computed_match and is_options_api:
             computed_content = computed_match.group(1).strip()
             computed_names = re.findall(r'(\w+)\s*\(', computed_content)
             if computed_names:
                 module_info.docstring = f"{module_info.docstring or ''}\nComputed: {', '.join(computed_names)}".strip()
 
-        methods_match = re.search(r'methods\s*:\s*\{([^}]+)\}', source, re.DOTALL)
+        methods_match = re.search(r'methods\s*:\s*\{((?:[^{}]|\{[^{}]*\})*)\}', source, re.DOTALL)
         if methods_match and is_options_api:
             methods_content = methods_match.group(1).strip()
             method_names = re.findall(r'(\w+)\s*\(', methods_content)
@@ -268,10 +292,16 @@ class TypeScriptParser(BaseParser):
                 enum_info = self._parse_enum(child, source, module_name)
                 if self.include_private or enum_info.visibility != Visibility.PRIVATE:
                     module_info.classes.append(enum_info)
-            elif child.type == "namespace_declaration":
+            elif child.type in ("namespace_declaration", "internal_module"):
                 namespace_info = self._parse_namespace(child, source, module_name)
                 if namespace_info:
                     module_info.submodules.append(namespace_info.name)
+            elif child.type == "expression_statement":
+                for expr_child in child.children:
+                    if expr_child.type in ("namespace_declaration", "internal_module"):
+                        namespace_info = self._parse_namespace(expr_child, source, module_name)
+                        if namespace_info:
+                            module_info.submodules.append(namespace_info.name)
             elif child.type == "module_declaration":
                 module_decl_info = self._parse_module_declaration(child, source, module_name)
                 if module_decl_info:
@@ -873,10 +903,10 @@ class TypeScriptParser(BaseParser):
         if not name:
             return None
 
-        full_name = f"{module_name}.{name}"
+        full_name = f"{module_name}.{name}" if module_name else name
 
         namespace_info = ModuleInfo(
-            name=full_name,
+            name=name,
             file_path=Path(),
             docstring=self._extract_jsdoc(node, source),
         )

@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QMenu,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QAction
 
 from pywiki.config.models import ProjectConfig
@@ -149,9 +149,11 @@ class ProjectPanel(QWidget):
         for project in projects:
             item = QListWidgetItem(self.project_list)
             item.setData(Qt.ItemDataRole.UserRole, project.name)
-            item.setSizeHint(Qt.QSize(200, 80))
             
             widget = ProjectItemWidget(project)
+            widget.adjustSize()
+            item.setSizeHint(widget.sizeHint())
+            
             self.project_list.setItemWidget(item, widget)
             self._project_widgets[project.name] = widget
 

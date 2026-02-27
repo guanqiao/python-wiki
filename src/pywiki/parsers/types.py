@@ -13,6 +13,7 @@ class Visibility(str, Enum):
     PUBLIC = "public"
     PROTECTED = "protected"
     PRIVATE = "private"
+    PACKAGE = "package"
 
 
 class ErrorType(str, Enum):

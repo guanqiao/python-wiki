@@ -23,6 +23,7 @@ from pywiki.generators.docs.development_generator import DevelopmentGenerator
 from pywiki.generators.docs.database_generator import DatabaseGenerator
 from pywiki.generators.docs.tsd_generator import TSDGenerator
 from pywiki.config.models import Language
+from pywiki.monitor.logger import logger
 
 
 class DocGenerationStatus(str, Enum):
@@ -73,6 +74,7 @@ class DocumentationAgent(BaseAgent):
         self._generators: dict[DocType, BaseAgent] = {}
         self._progress = DocGenerationProgress()
         self._progress_callback: Optional[Callable[[DocGenerationProgress], None]] = None
+        logger.debug("DocumentationAgent 初始化完成")
 
     def get_system_prompt(self) -> str:
         return """你是一个专业的技术文档撰写专家。
@@ -95,6 +97,7 @@ class DocumentationAgent(BaseAgent):
 
     async def execute(self, context: AgentContext) -> AgentResult:
         """执行文档生成"""
+        logger.info(f"DocumentationAgent 开始执行: project={context.project_name}")
         self.status = "running"
         self._progress = DocGenerationProgress(
             status=DocGenerationStatus.PREPARING,
@@ -107,6 +110,8 @@ class DocumentationAgent(BaseAgent):
             output_dir = context.metadata.get("output_dir", Path(".python-wiki/repowiki"))
             language = context.metadata.get("language", Language.ZH)
             llm_client = context.metadata.get("llm_client") or self.llm_client
+
+            logger.info(f"文档生成参数: types={[d.value for d in doc_types]}, language={language}")
 
             self._progress.status = DocGenerationStatus.GENERATING
             self._progress.total_docs = len(doc_types)
@@ -125,6 +130,11 @@ class DocumentationAgent(BaseAgent):
             self._notify_progress()
 
             duration = (self._progress.end_time - self._progress.start_time).total_seconds()
+
+            logger.info(
+                f"DocumentationAgent 执行完成: "
+                f"成功={len(results.generated_files)}, 失败={len(results.failed_docs)}, 耗时={duration:.2f}s"
+            )
 
             self._record_execution(context, AgentResult.success_result(
                 data={
@@ -153,6 +163,8 @@ class DocumentationAgent(BaseAgent):
             self._progress.end_time = datetime.now()
             self._notify_progress()
 
+            logger.log_exception(f"DocumentationAgent 执行失败: {context.project_name}", e)
+
             self.status = "error"
             return AgentResult.error_result(f"文档生成失败: {str(e)}")
 
@@ -168,6 +180,7 @@ class DocumentationAgent(BaseAgent):
         result = DocGenerationResult(success=True)
         output_path = context.project_path / output_dir if context.project_path else Path(output_dir)
 
+        logger.debug(f"文档输出路径: {output_path}")
         generators = self._get_generators(language)
 
         for doc_type in doc_types:
@@ -176,8 +189,10 @@ class DocumentationAgent(BaseAgent):
 
             generator = generators.get(doc_type)
             if not generator:
+                logger.warning(f"未找到文档生成器: {doc_type.value}")
                 continue
 
+            logger.debug(f"开始生成文档: {doc_type.value}")
             try:
                 doc_context = DocGeneratorContext(
                     project_path=context.project_path or Path("."),
@@ -196,17 +211,21 @@ class DocumentationAgent(BaseAgent):
                     file_path.write_text(doc_result.content, encoding="utf-8")
                     result.generated_files.append(file_path)
                     self._progress.completed_docs.append(doc_type.value)
+                    logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
                 else:
                     result.failed_docs.append(doc_type.value)
                     self._progress.errors.append(f"{doc_type.value}: {doc_result.message}")
+                    logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}")
 
             except Exception as e:
                 result.failed_docs.append(doc_type.value)
                 self._progress.errors.append(f"{doc_type.value}: {str(e)}")
+                logger.log_exception(f"文档生成异常: {doc_type.value}", e)
 
             self._notify_progress()
 
         result.success = len(result.generated_files) > 0
+        logger.info(f"文档生成汇总: 成功={len(result.generated_files)}, 失败={len(result.failed_docs)}")
         return result
 
     def _get_generators(self, language: Language) -> dict[DocType, Any]:
@@ -231,10 +250,12 @@ class DocumentationAgent(BaseAgent):
         language: Language = Language.ZH,
     ) -> AgentResult:
         """生成单个文档"""
+        logger.info(f"生成单个文档: type={doc_type.value}, project={context.project_name}")
         generators = self._get_generators(language)
         generator = generators.get(doc_type)
 
         if not generator:
+            logger.error(f"未知的文档类型: {doc_type.value}")
             return AgentResult.error_result(f"未知的文档类型: {doc_type}")
 
         output_dir = context.metadata.get("output_dir", Path(".python-wiki/repowiki"))
@@ -250,12 +271,14 @@ class DocumentationAgent(BaseAgent):
         )
 
         try:
+            logger.debug(f"开始生成文档: {doc_type.value}")
             doc_result = await generator.generate(doc_context)
 
             if doc_result.success:
                 file_path = output_path / doc_result.file_path.name
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(doc_result.content, encoding="utf-8")
+                logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
 
                 return AgentResult.success_result(
                     data={"file_path": str(file_path), "content": doc_result.content},
@@ -263,9 +286,11 @@ class DocumentationAgent(BaseAgent):
                     confidence=0.9,
                 )
             else:
+                logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}")
                 return AgentResult.error_result(doc_result.message)
 
         except Exception as e:
+            logger.log_exception(f"生成文档异常: {doc_type.value}", e)
             return AgentResult.error_result(f"生成失败: {str(e)}")
 
     def get_supported_doc_types(self) -> list[dict[str, str]]:

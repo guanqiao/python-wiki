@@ -5,6 +5,8 @@ LLM 配置对话框
 from pathlib import Path
 from typing import Optional
 
+from pydantic import SecretStr
+
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -17,6 +19,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QWidget,
     QMessageBox,
+    QFileDialog,
 )
 from PyQt6.QtCore import Qt
 
@@ -150,7 +153,7 @@ class LLMConfigDialog(QDialog):
         return LLMConfig(
             provider=self.provider_combo.currentData(),
             endpoint=self.endpoint_edit.text().strip(),
-            api_key=api_key,
+            api_key=SecretStr(api_key),
             model=self.model_edit.text().strip(),
             ca_cert=Path(ca_cert) if ca_cert else None,
             timeout=self.timeout_spin.value(),

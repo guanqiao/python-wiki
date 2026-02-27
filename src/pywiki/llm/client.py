@@ -3,6 +3,7 @@ LLM 统一客户端实现
 """
 
 import ssl
+import time
 from typing import Any, AsyncIterator, Iterator, Optional
 
 import httpx
@@ -11,6 +12,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from pywiki.config.models import LLMConfig, LLMProvider
 from pywiki.llm.base import BaseLLMClient
+from pywiki.monitor.logger import logger
 
 
 class LLMClient(BaseLLMClient):
@@ -44,11 +46,14 @@ class LLMClient(BaseLLMClient):
         self._langchain_llm: Optional[ChatOpenAI] = None
         self._ssl_context: Optional[ssl.SSLContext] = None
 
+        logger.info(f"LLMClient 初始化: provider={provider}, model={model}, endpoint={endpoint}")
+        
         self._setup_ssl()
         self._setup_client()
 
     def _setup_ssl(self) -> None:
         if self.ca_cert:
+            logger.debug(f"加载 SSL 证书: {self.ca_cert}")
             self._ssl_context = ssl.create_default_context()
             self._ssl_context.load_verify_locations(self.ca_cert)
 
@@ -70,6 +75,7 @@ class LLMClient(BaseLLMClient):
             timeout=self.timeout,
             max_retries=self.max_retries,
         )
+        logger.debug("LLM 客户端设置完成")
 
     @retry(
         stop=stop_after_attempt(3),
@@ -81,13 +87,23 @@ class LLMClient(BaseLLMClient):
         system_prompt: Optional[str] = None,
         **kwargs: Any
     ) -> str:
-        messages = []
-        if system_prompt:
-            messages.append(("system", system_prompt))
-        messages.append(("human", prompt))
+        start_time = time.time()
+        logger.debug(f"LLM 同步调用: model={self.model}, prompt_length={len(prompt)}")
+        
+        try:
+            messages = []
+            if system_prompt:
+                messages.append(("system", system_prompt))
+            messages.append(("human", prompt))
 
-        response = self._langchain_llm.invoke(messages)
-        return response.content
+            response = self._langchain_llm.invoke(messages)
+            duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"LLM 同步响应: 成功, 耗时={duration_ms:.0f}ms, response_length={len(response.content)}")
+            return response.content
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(f"LLM 同步调用失败: 耗时={duration_ms:.0f}ms, 错误={str(e)}")
+            raise
 
     @retry(
         stop=stop_after_attempt(3),
@@ -99,13 +115,23 @@ class LLMClient(BaseLLMClient):
         system_prompt: Optional[str] = None,
         **kwargs: Any
     ) -> str:
-        messages = []
-        if system_prompt:
-            messages.append(("system", system_prompt))
-        messages.append(("human", prompt))
+        start_time = time.time()
+        logger.debug(f"LLM 异步调用: model={self.model}, prompt_length={len(prompt)}")
+        
+        try:
+            messages = []
+            if system_prompt:
+                messages.append(("system", system_prompt))
+            messages.append(("human", prompt))
 
-        response = await self._langchain_llm.ainvoke(messages)
-        return response.content
+            response = await self._langchain_llm.ainvoke(messages)
+            duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"LLM 异步响应: 成功, 耗时={duration_ms:.0f}ms, response_length={len(response.content)}")
+            return response.content
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(f"LLM 异步调用失败: 耗时={duration_ms:.0f}ms, 错误={str(e)}")
+            raise
 
     def stream(
         self,
@@ -113,13 +139,19 @@ class LLMClient(BaseLLMClient):
         system_prompt: Optional[str] = None,
         **kwargs: Any
     ) -> Iterator[str]:
-        messages = []
-        if system_prompt:
-            messages.append(("system", system_prompt))
-        messages.append(("human", prompt))
+        logger.debug(f"LLM 流式调用: model={self.model}, prompt_length={len(prompt)}")
+        try:
+            messages = []
+            if system_prompt:
+                messages.append(("system", system_prompt))
+            messages.append(("human", prompt))
 
-        for chunk in self._langchain_llm.stream(messages):
-            yield chunk.content
+            for chunk in self._langchain_llm.stream(messages):
+                yield chunk.content
+            logger.debug("LLM 流式响应完成")
+        except Exception as e:
+            logger.error(f"LLM 流式调用失败: {str(e)}")
+            raise
 
     async def astream(
         self,
@@ -127,26 +159,40 @@ class LLMClient(BaseLLMClient):
         system_prompt: Optional[str] = None,
         **kwargs: Any
     ) -> AsyncIterator[str]:
-        messages = []
-        if system_prompt:
-            messages.append(("system", system_prompt))
-        messages.append(("human", prompt))
+        logger.debug(f"LLM 异步流式调用: model={self.model}, prompt_length={len(prompt)}")
+        try:
+            messages = []
+            if system_prompt:
+                messages.append(("system", system_prompt))
+            messages.append(("human", prompt))
 
-        async for chunk in self._langchain_llm.astream(messages):
-            yield chunk.content
+            async for chunk in self._langchain_llm.astream(messages):
+                yield chunk.content
+            logger.debug("LLM 异步流式响应完成")
+        except Exception as e:
+            logger.error(f"LLM 异步流式调用失败: {str(e)}")
+            raise
 
     def count_tokens(self, text: str) -> int:
         return self._langchain_llm.get_num_tokens(text)
 
     async def test_connection(self) -> bool:
+        logger.info(f"测试 LLM 连接: model={self.model}, endpoint={self.endpoint}")
         try:
             response = await self.agenerate("Hello", max_tokens=10)
-            return bool(response)
-        except Exception:
+            success = bool(response)
+            if success:
+                logger.info("LLM 连接测试成功")
+            else:
+                logger.warning("LLM 连接测试失败: 响应为空")
+            return success
+        except Exception as e:
+            logger.error(f"LLM 连接测试失败: {str(e)}")
             return False
 
     @classmethod
     def from_config(cls, config: LLMConfig) -> "LLMClient":
+        logger.debug(f"从配置创建 LLM 客户端: model={config.model}")
         return cls(
             endpoint=config.endpoint,
             api_key=config.api_key.get_secret_value(),
@@ -162,3 +208,4 @@ class LLMClient(BaseLLMClient):
     async def close(self) -> None:
         if self._http_client:
             await self._http_client.aclose()
+            logger.debug("LLM 客户端 HTTP 连接已关闭")

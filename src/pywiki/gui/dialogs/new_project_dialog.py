@@ -5,6 +5,8 @@
 from pathlib import Path
 from typing import Optional
 
+from pydantic import SecretStr
+
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -97,5 +99,5 @@ class NewProjectDialog(QDialog):
             wiki=WikiConfig(
                 language=self.language_combo.currentData(),
             ),
-            llm=LLMConfig(api_key=""),
+            llm=LLMConfig(api_key=SecretStr("")),
         )
