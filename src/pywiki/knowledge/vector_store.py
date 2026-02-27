@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain.schema import Document
+from langchain_openai import OpenAIEmbeddings
+from langchain_core.documents import Document
 
 
 @dataclass
@@ -66,8 +66,8 @@ class VectorStore:
 
         self._embeddings = OpenAIEmbeddings(
             model=embedding_model,
-            openai_api_key=openai_api_key,
-            openai_api_base=openai_api_base,
+            api_key=openai_api_key,
+            base_url=openai_api_base,
         )
 
         self._vectorstore: Optional[FAISS] = None

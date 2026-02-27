@@ -28,16 +28,15 @@ class WikiCheckpointer(BaseCheckpointSaver):
     def _get_metadata_path(self, thread_id: str) -> Path:
         return self.storage_path / f"{thread_id}_meta.json"
 
-    def save(
+    def put(
         self,
+        config: dict[str, Any],
         checkpoint: Checkpoint,
         metadata: Optional[dict[str, Any]] = None,
-        thread_id: Optional[str] = None,
+        new_versions: Optional[dict[str, Any]] = None,
     ) -> None:
         """保存检查点"""
-        if thread_id is None:
-            thread_id = checkpoint.get("thread_id", "default")
-
+        thread_id = config.get("configurable", {}).get("thread_id", "default")
         checkpoint_path = self._get_checkpoint_path(thread_id)
 
         checkpoint_data = {
@@ -54,8 +53,9 @@ class WikiCheckpointer(BaseCheckpointSaver):
             with open(metadata_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-    def load(self, thread_id: str) -> Optional[Checkpoint]:
+    def get(self, config: dict[str, Any]) -> Optional[Checkpoint]:
         """加载检查点"""
+        thread_id = config.get("configurable", {}).get("thread_id", "default")
         checkpoint_path = self._get_checkpoint_path(thread_id)
 
         if not checkpoint_path.exists():
@@ -68,6 +68,25 @@ class WikiCheckpointer(BaseCheckpointSaver):
             return self._deserialize_checkpoint(data.get("checkpoint", {}))
         except Exception:
             return None
+
+    def get_tuple(self, config: dict[str, Any]) -> Optional[tuple[Checkpoint, dict[str, Any]]]:
+        """获取检查点和元数据"""
+        thread_id = config.get("configurable", {}).get("thread_id", "default")
+        checkpoint = self.get(config)
+        if checkpoint is None:
+            return None
+        
+        metadata = self.load_metadata(thread_id)
+        return (checkpoint, metadata or {})
+
+    def put_writes(
+        self,
+        config: dict[str, Any],
+        writes: list[tuple[str, Any]],
+        task_id: str,
+    ) -> None:
+        """写入待处理的写入操作"""
+        pass
 
     def load_metadata(self, thread_id: str) -> Optional[dict[str, Any]]:
         """加载元数据"""
@@ -188,22 +207,37 @@ class MemoryCheckpointer(BaseCheckpointSaver):
         self._checkpoints: dict[str, Checkpoint] = {}
         self._metadata: dict[str, dict[str, Any]] = {}
 
-    def save(
+    def put(
         self,
+        config: dict[str, Any],
         checkpoint: Checkpoint,
         metadata: Optional[dict[str, Any]] = None,
-        thread_id: Optional[str] = None,
+        new_versions: Optional[dict[str, Any]] = None,
     ) -> None:
-        if thread_id is None:
-            thread_id = checkpoint.get("thread_id", "default")
-
+        thread_id = config.get("configurable", {}).get("thread_id", "default")
         self._checkpoints[thread_id] = checkpoint
 
         if metadata:
             self._metadata[thread_id] = metadata
 
-    def load(self, thread_id: str) -> Optional[Checkpoint]:
+    def get(self, config: dict[str, Any]) -> Optional[Checkpoint]:
+        thread_id = config.get("configurable", {}).get("thread_id", "default")
         return self._checkpoints.get(thread_id)
+
+    def get_tuple(self, config: dict[str, Any]) -> Optional[tuple[Checkpoint, dict[str, Any]]]:
+        thread_id = config.get("configurable", {}).get("thread_id", "default")
+        checkpoint = self._checkpoints.get(thread_id)
+        if checkpoint is None:
+            return None
+        return (checkpoint, self._metadata.get(thread_id, {}))
+
+    def put_writes(
+        self,
+        config: dict[str, Any],
+        writes: list[tuple[str, Any]],
+        task_id: str,
+    ) -> None:
+        pass
 
     def load_metadata(self, thread_id: str) -> Optional[dict[str, Any]]:
         return self._metadata.get(thread_id)

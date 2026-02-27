@@ -63,8 +63,8 @@ class LLMClient(BaseLLMClient):
 
         self._langchain_llm = ChatOpenAI(
             model=self.model,
-            openai_api_key=self.api_key,
-            openai_api_base=self.endpoint,
+            api_key=self.api_key,
+            base_url=self.endpoint,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             timeout=self.timeout,

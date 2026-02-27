@@ -37,7 +37,6 @@ def _get_java_language():
 class JavaParser(BaseParser):
     """Java 解析器，支持 Spring 和 MyBatis Plus"""
 
-    # Spring 相关注解
     SPRING_CONTROLLERS = {
         "Controller", "RestController", "RequestMapping",
         "GetMapping", "PostMapping", "PutMapping", "DeleteMapping",
@@ -47,16 +46,13 @@ class JavaParser(BaseParser):
     SPRING_INJECTION = {"Autowired", "Inject", "Resource"}
     SPRING_CONFIG = {"Configuration", "Bean", "Value", "Profile"}
 
-    # MyBatis Plus 相关注解
     MYBATIS_PLUS = {"TableName", "TableId", "TableField", "Version", "LogicDelete"}
     MYBATIS_MAPPER = {"Mapper", "Select", "Insert", "Update", "Delete"}
 
-    # Lombok 注解
     LOMBOK = {"Data", "Getter", "Setter", "Builder", "NoArgsConstructor",
               "AllArgsConstructor", "RequiredArgsConstructor", "ToString", "EqualsAndHashCode",
               "Slf4j", "Log4j2"}
 
-    # JPA/Hibernate 注解
     JPA_ENTITY = {"Entity", "Table", "Column", "Id", "GeneratedValue", "SequenceGenerator",
                   "Temporal", "Enumerated", "Lob", "Transient", "Version"}
     JPA_RELATIONSHIP = {"OneToOne", "OneToMany", "ManyToOne", "ManyToMany", "JoinColumn", "JoinTable"}
@@ -147,7 +143,6 @@ class JavaParser(BaseParser):
                 if self.include_private or class_info.visibility != Visibility.PRIVATE:
                     module_info.classes.append(class_info)
             elif child.type == "record_declaration":
-                # Java 14+ Record
                 class_info = self._parse_record(child, source, module_info.name)
                 if self.include_private or class_info.visibility != Visibility.PRIVATE:
                     module_info.classes.append(class_info)
@@ -212,12 +207,10 @@ class JavaParser(BaseParser):
             elif child.type == "identifier":
                 name = self._get_node_text(child, source)
             elif child.type == "superclass":
-                # extends
                 for super_child in child.children:
                     if super_child.type == "type_identifier":
                         bases.append(self._get_node_text(super_child, source))
             elif child.type == "super_interfaces":
-                # implements
                 for iface_child in child.children:
                     if iface_child.type == "type_identifier":
                         bases.append(self._get_node_text(iface_child, source))
@@ -239,7 +232,6 @@ class JavaParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 解析类体
         for child in node.children:
             if child.type == "class_body":
                 for member in child.children:
@@ -256,11 +248,9 @@ class JavaParser(BaseParser):
                         for field in fields:
                             class_info.class_variables.append(field)
                     elif member.type == "class_declaration":
-                        # 嵌套类
                         nested = self._parse_class(member, source, full_name)
                         class_info.nested_classes.append(nested)
 
-        # 分析 Spring/MyBatis 特性
         class_info = self._analyze_spring_features(class_info, annotations, source)
 
         return class_info
@@ -300,7 +290,6 @@ class JavaParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 解析接口体
         for child in node.children:
             if child.type == "interface_body":
                 for member in child.children:
@@ -313,7 +302,6 @@ class JavaParser(BaseParser):
                         for field in fields:
                             class_info.class_variables.append(field)
 
-        # 分析是否为 MyBatis Mapper
         class_info = self._analyze_mybatis_mapper(class_info, annotations)
 
         return class_info
@@ -344,7 +332,6 @@ class JavaParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 解析枚举常量
         for child in node.children:
             if child.type == "enum_body":
                 for enum_const in child.children:
@@ -458,7 +445,6 @@ class JavaParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 分析 Spring/MyBatis 方法特性
         func_info = self._analyze_method_features(func_info, annotations, source)
 
         return func_info
@@ -526,7 +512,6 @@ class JavaParser(BaseParser):
                 type_hint=type_hint,
                 kind=ParameterKind.POSITIONAL_OR_KEYWORD,
             )
-            # 添加参数注解信息
             if annotations:
                 param_info.description = f"Annotations: {', '.join(annotations)}"
             return param_info
@@ -586,10 +571,8 @@ class JavaParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 解析 record 组件（隐式的 final 字段）
         for child in node.children:
             if child.type == "formal_parameters":
-                # Record 的参数列表就是它的组件
                 for param in child.children:
                     if param.type == "formal_parameter":
                         param_info = self._parse_parameter(param, source)
@@ -601,7 +584,6 @@ class JavaParser(BaseParser):
                                 is_readonly=True,
                             ))
 
-        # 分析 Lombok 注解
         record_info = self._analyze_lombok_features(record_info, annotations)
 
         return record_info
@@ -615,30 +597,24 @@ class JavaParser(BaseParser):
         """分析 Spring 框架特性"""
         spring_info = []
 
-        # 检查 Controller
         if any(ann in self.SPRING_CONTROLLERS for ann in annotations):
             spring_info.append("Spring Controller")
-            # 提取路由映射
             route = self._extract_route_mapping(source, annotations)
             if route:
                 spring_info.append(f"Route: {route}")
 
-        # 检查 Service
         if any(ann in self.SPRING_SERVICES for ann in annotations):
             spring_info.append("Spring Service")
 
-        # 检查 Configuration
         if any(ann in self.SPRING_CONFIG for ann in annotations):
             spring_info.append("Spring Configuration")
 
-        # 检查 MyBatis Plus Entity
         if any(ann in self.MYBATIS_PLUS for ann in annotations):
             spring_info.append("MyBatis Plus Entity")
             table_name = self._extract_table_name(source)
             if table_name:
                 spring_info.append(f"Table: {table_name}")
 
-        # 检查 JPA Entity
         if any(ann in self.JPA_ENTITY for ann in annotations):
             spring_info.append("JPA Entity")
             jpa_table = self._extract_jpa_table_name(source)
@@ -664,15 +640,12 @@ class JavaParser(BaseParser):
             if found_annotations:
                 lombok_info.append(f"Lombok: {', '.join(found_annotations)}")
 
-            # @Data 包含 @Getter @Setter @ToString @EqualsAndHashCode
             if "Data" in annotations:
                 lombok_info.append("自动生成 Getter/Setter/ToString/EqualsAndHashCode")
 
-            # @Builder 生成构建器模式
             if "Builder" in annotations:
                 lombok_info.append("Builder 模式")
 
-            # @Slf4j / @Log4j2 日志
             if "Slf4j" in annotations:
                 lombok_info.append("SLF4J Logger")
             if "Log4j2" in annotations:
@@ -693,12 +666,10 @@ class JavaParser(BaseParser):
         """分析 JPA/Hibernate 特性"""
         jpa_info = []
 
-        # 检查 JPA 实体注解
         jpa_entity_annotations = self.JPA_ENTITY & set(annotations)
         if jpa_entity_annotations:
             jpa_info.append(f"JPA: {', '.join(jpa_entity_annotations)}")
 
-        # 检查关系注解
         jpa_rel_annotations = self.JPA_RELATIONSHIP & set(annotations)
         if jpa_rel_annotations:
             relationships = []
@@ -739,19 +710,16 @@ class JavaParser(BaseParser):
         """分析方法特性"""
         method_info = []
 
-        # 检查 Spring 路由映射
         route_annotations = self.SPRING_CONTROLLERS & set(annotations)
         if route_annotations:
             route = self._extract_route_mapping(source, annotations)
             if route:
                 method_info.append(f"Route: {route}")
 
-        # 检查依赖注入
         injection_annotations = self.SPRING_INJECTION & set(annotations)
         if injection_annotations:
             func_info.description = f"依赖注入: {', '.join(injection_annotations)}"
 
-        # 检查 MyBatis SQL 注解
         sql_annotations = self.MYBATIS_MAPPER & set(annotations)
         if sql_annotations:
             func_info.description = f"MyBatis SQL: {', '.join(sql_annotations)}"
@@ -764,12 +732,10 @@ class JavaParser(BaseParser):
 
     def _extract_route_mapping(self, source: str, annotations: list[str]) -> Optional[str]:
         """提取路由映射信息"""
-        # 简化实现，从源码中提取路由路径
         import re
 
         for ann in annotations:
             if ann in ("RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping"):
-                # 查找注解中的路径
                 pattern = rf'@{ann}\s*\(\s*["\']([^"\']+)["\']\s*\)'
                 match = re.search(pattern, source)
                 if match:
@@ -804,7 +770,6 @@ class JavaParser(BaseParser):
         line_start = node.start_point[0]
         lines = source.split("\n")
 
-        # 查找节点前的 Javadoc 注释
         comments = []
         in_javadoc = False
 
@@ -826,7 +791,6 @@ class JavaParser(BaseParser):
                 break
 
         if comments:
-            # 清理 Javadoc 标记
             cleaned = []
             for line in comments:
                 line = line.strip()

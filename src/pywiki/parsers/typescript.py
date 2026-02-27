@@ -98,7 +98,6 @@ class TypeScriptParser(BaseParser):
 
     def _parse_vue_file(self, source: str, file_path: Path) -> Optional[ModuleInfo]:
         """解析 Vue 单文件组件"""
-        # 提取 <script> 或 <script setup> 内容
         script_match = re.search(
             r'<script\s*(?:lang="ts"|setup)?[^>]*>(.*?)</script>',
             source,
@@ -111,25 +110,21 @@ class TypeScriptParser(BaseParser):
         script_content = script_match.group(1).strip()
         is_ts = 'lang="ts"' in script_match.group(0)
 
-        # 解析 script 部分
         if is_ts:
             module_info = self._parse_ts_file(script_content, file_path)
         else:
             module_info = self._parse_ts_file(script_content, file_path, use_js=True)
 
         if module_info:
-            # 提取 Vue 组件特有信息
             module_info = self._extract_vue_info(source, module_info)
 
         return module_info
 
     def _extract_vue_info(self, source: str, module_info: ModuleInfo) -> ModuleInfo:
         """提取 Vue 组件特有信息"""
-        # 检查是否使用 Composition API
         is_composition_api = "setup" in source or "defineProps" in source or "defineEmits" in source
         is_options_api = False
 
-        # 检查是否使用 Options API
         options_api_patterns = [
             r'\bdata\s*\(\s*\)\s*\{',
             r'\bmethods\s*:\s*\{',
@@ -150,28 +145,23 @@ class TypeScriptParser(BaseParser):
         elif is_options_api:
             module_info.docstring = f"{module_info.docstring or ''}\n使用 Options API".strip()
 
-        # 提取 Props 定义 (Composition API)
         props_match = re.search(r'defineProps<([^>]+)>', source)
         if props_match:
             props_type = props_match.group(1).strip()
             module_info.docstring = f"{module_info.docstring or ''}\nProps: {props_type}".strip()
 
-        # 提取 Props 定义 (Options API)
         props_options_match = re.search(r'props\s*:\s*\{([^}]+)\}', source, re.DOTALL)
         if props_options_match and is_options_api:
             props_content = props_options_match.group(1).strip()
-            # 提取 props 名称
             prop_names = re.findall(r'(\w+)\s*:', props_content)
             if prop_names:
                 module_info.docstring = f"{module_info.docstring or ''}\nProps: {', '.join(prop_names)}".strip()
 
-        # 提取 Emits 定义 (Composition API)
         emits_match = re.search(r'defineEmits<([^>]+)>', source)
         if emits_match:
             emits_type = emits_match.group(1).strip()
             module_info.docstring = f"{module_info.docstring or ''}\nEmits: {emits_type}".strip()
 
-        # 提取 Emits 定义 (Options API)
         emits_options_match = re.search(r'emits\s*:\s*\[([^\]]+)\]', source)
         if emits_options_match and is_options_api:
             emits_list = emits_options_match.group(1).strip()
@@ -179,13 +169,11 @@ class TypeScriptParser(BaseParser):
             if emit_names:
                 module_info.docstring = f"{module_info.docstring or ''}\nEmits: {', '.join(emit_names)}".strip()
 
-        # 提取组件名称
         name_match = re.search(r'name\s*:\s*["\']([^"\']+)["\']', source)
         if name_match:
             component_name = name_match.group(1)
             module_info.docstring = f"{module_info.docstring or ''}\n组件名: {component_name}".strip()
 
-        # 提取生命周期钩子
         lifecycle_hooks = [
             'beforeCreate', 'created', 'beforeMount', 'mounted',
             'beforeUpdate', 'updated', 'beforeUnmount', 'unmounted',
@@ -198,7 +186,6 @@ class TypeScriptParser(BaseParser):
         if found_hooks:
             module_info.docstring = f"{module_info.docstring or ''}\n生命周期: {', '.join(found_hooks)}".strip()
 
-        # 提取 Computed 属性 (Options API)
         computed_match = re.search(r'computed\s*:\s*\{([^}]+)\}', source, re.DOTALL)
         if computed_match and is_options_api:
             computed_content = computed_match.group(1).strip()
@@ -206,7 +193,6 @@ class TypeScriptParser(BaseParser):
             if computed_names:
                 module_info.docstring = f"{module_info.docstring or ''}\nComputed: {', '.join(computed_names)}".strip()
 
-        # 提取 Methods (Options API)
         methods_match = re.search(r'methods\s*:\s*\{([^}]+)\}', source, re.DOTALL)
         if methods_match and is_options_api:
             methods_content = methods_match.group(1).strip()
@@ -269,31 +255,24 @@ class TypeScriptParser(BaseParser):
                 if self.include_private or func_info.visibility != Visibility.PRIVATE:
                     module_info.functions.append(func_info)
             elif child.type == "lexical_declaration":
-                # const/let 声明，可能是函数、箭头函数或变量
                 self._parse_lexical_declaration(child, source, module_info, module_name)
             elif child.type == "variable_declaration":
-                # var 声明
                 self._parse_variable_declaration(child, source, module_info, module_name)
             elif child.type == "interface_declaration":
-                # TypeScript 接口
                 class_info = self._parse_interface(child, source, module_name)
                 if self.include_private or class_info.visibility != Visibility.PRIVATE:
                     module_info.classes.append(class_info)
             elif child.type == "type_alias_declaration":
-                # TypeScript type 别名
                 self._parse_type_alias(child, source, module_info)
             elif child.type == "enum_declaration":
-                # TypeScript 枚举
                 enum_info = self._parse_enum(child, source, module_name)
                 if self.include_private or enum_info.visibility != Visibility.PRIVATE:
                     module_info.classes.append(enum_info)
             elif child.type == "namespace_declaration":
-                # TypeScript 命名空间
                 namespace_info = self._parse_namespace(child, source, module_name)
                 if namespace_info:
                     module_info.submodules.append(namespace_info.name)
             elif child.type == "module_declaration":
-                # TypeScript 模块
                 module_decl_info = self._parse_module_declaration(child, source, module_name)
                 if module_decl_info:
                     module_info.submodules.append(module_decl_info.name)
@@ -311,10 +290,6 @@ class TypeScriptParser(BaseParser):
     def _parse_import(self, node, source: str) -> list[ImportInfo]:
         """解析 import 语句"""
         imports = []
-
-        # import { a, b } from 'module'
-        # import * as name from 'module'
-        # import defaultExport from 'module'
 
         source_clause = None
         names = []
@@ -341,7 +316,6 @@ class TypeScriptParser(BaseParser):
                                 if name:
                                     names.append(alias_name or name)
                     elif clause_child.type == "namespace_import":
-                        # * as name
                         for ns_child in clause_child.children:
                             if ns_child.type == "identifier":
                                 alias = self._get_node_text(ns_child, source)
@@ -385,7 +359,6 @@ class TypeScriptParser(BaseParser):
             if child.type == "type_identifier" or child.type == "identifier":
                 name = self._get_node_text(child, source)
             elif child.type == "class_heritage":
-                # extends Clause
                 for heritage_child in child.children:
                     if heritage_child.type == "extends_clause":
                         for ext_child in heritage_child.children:
@@ -408,7 +381,6 @@ class TypeScriptParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 解析类体
         for child in node.children:
             if child.type == "class_body":
                 for member in child.children:
@@ -421,7 +393,6 @@ class TypeScriptParser(BaseParser):
                         if prop:
                             class_info.properties.append(prop)
 
-        # React 组件特殊处理
         if is_react_component:
             class_info = self._extract_react_component_info(class_info, node, source)
 
@@ -436,7 +407,6 @@ class TypeScriptParser(BaseParser):
         """提取 React 类组件特有信息"""
         class_info.docstring = f"{class_info.docstring or ''}\nReact Class Component".strip()
 
-        # 检查 render 方法
         has_render = any(m.name == "render" for m in class_info.methods)
         if has_render:
             class_info.docstring = f"{class_info.docstring}\n有 render 方法".strip()
@@ -469,7 +439,6 @@ class TypeScriptParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 解析接口成员
         for child in node.children:
             if child.type == "object_type":
                 for member in child.children:
@@ -526,7 +495,6 @@ class TypeScriptParser(BaseParser):
 
     def _parse_type_alias(self, node, source: str, module_info: ModuleInfo) -> None:
         """解析 TypeScript type 别名"""
-        # type 别名作为变量存储
         name = ""
         type_value = ""
 
@@ -584,10 +552,8 @@ class TypeScriptParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # React 函数组件检测
         if self._is_react_function_component(node, source):
             func_info.docstring = f"{func_info.docstring or ''}\nReact Function Component".strip()
-            # 检测 Hooks
             hooks = self._detect_hooks(node, source)
             if hooks:
                 func_info.docstring = f"{func_info.docstring}\n使用 Hooks: {', '.join(hooks)}".strip()
@@ -664,14 +630,12 @@ class TypeScriptParser(BaseParser):
 
         for child in node.children:
             if child.type == "identifier":
-                # 简单参数
                 name = self._get_node_text(child, source)
                 parameters.append(ParameterInfo(
                     name=name,
                     kind=ParameterKind.POSITIONAL_OR_KEYWORD,
                 ))
             elif child.type == "required_parameter" or child.type == "optional_parameter":
-                # 带类型注解的参数
                 param_info = self._parse_parameter(child, source)
                 if param_info:
                     parameters.append(param_info)
@@ -690,7 +654,6 @@ class TypeScriptParser(BaseParser):
             elif child.type == "type_annotation":
                 type_hint = self._get_node_text(child, source).lstrip(": ")
             elif child.type == "=":
-                # 默认值
                 pass
             elif child.prev_sibling and child.prev_sibling.type == "=":
                 default_value = self._get_node_text(child, source)
@@ -729,12 +692,10 @@ class TypeScriptParser(BaseParser):
                         func_node = decl_child
 
                 if is_arrow_function and func_node:
-                    # 箭头函数
                     func_info = self._parse_arrow_function(func_node, source, name, module_name)
                     if self.include_private or func_info.visibility != Visibility.PRIVATE:
                         module_info.functions.append(func_info)
                 elif name:
-                    # 普通变量
                     type_hint = None
                     for decl_child in child.children:
                         if decl_child.type == "type_annotation":
@@ -791,7 +752,6 @@ class TypeScriptParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # React 函数组件检测
         if self._is_react_function_component(node, source):
             func_info.docstring = f"{func_info.docstring or ''}\nReact Function Component".strip()
             hooks = self._detect_hooks(node, source)
@@ -803,10 +763,8 @@ class TypeScriptParser(BaseParser):
     def _is_react_function_component(self, node, source: str) -> bool:
         """检测是否为 React 函数组件"""
         source_text = self._get_node_text(node, source)
-        # 检查是否返回 JSX
         if "React" in source_text or "jsx" in source_text or "<" in source_text:
             return True
-        # 检查函数名是否为大写开头（React 组件约定）
         return False
 
     def _detect_hooks(self, node, source: str) -> list[str]:
@@ -836,10 +794,8 @@ class TypeScriptParser(BaseParser):
 
     def _extract_jsdoc(self, node, source: str) -> Optional[str]:
         """提取 JSDoc 注释"""
-        # 查找节点前的注释
         line_start = node.start_point[0]
 
-        # 简单实现：查找行前的注释
         lines = source.split("\n")
         comments = []
 
@@ -886,7 +842,6 @@ class TypeScriptParser(BaseParser):
             line_end=node.end_point[0] + 1,
         )
 
-        # 解析枚举成员
         for child in node.children:
             if child.type == "enum_body":
                 for member in child.children:
@@ -897,7 +852,6 @@ class TypeScriptParser(BaseParser):
                             visibility=Visibility.PUBLIC,
                         ))
                     elif member.type == "enum_assignment":
-                        # 枚举成员赋值
                         for assign_child in member.children:
                             if assign_child.type == "property_identifier":
                                 member_name = self._get_node_text(assign_child, source)
@@ -923,11 +877,10 @@ class TypeScriptParser(BaseParser):
 
         namespace_info = ModuleInfo(
             name=full_name,
-            file_path=Path(),  # 命名空间没有独立文件
+            file_path=Path(),
             docstring=self._extract_jsdoc(node, source),
         )
 
-        # 解析命名空间内容
         for child in node.children:
             if child.type == "statement_block":
                 for stmt in child.children:
@@ -958,7 +911,6 @@ class TypeScriptParser(BaseParser):
 
         for child in node.children:
             if child.type == "string":
-                # 模块名可能是字符串，如 declare module "foo"
                 name = self._get_node_text(child, source).strip('"\'')
             elif child.type == "identifier":
                 name = self._get_node_text(child, source)
@@ -974,7 +926,6 @@ class TypeScriptParser(BaseParser):
             docstring=f"Module\n{self._extract_jsdoc(node, source) or ''}".strip(),
         )
 
-        # 解析模块内容
         for child in node.children:
             if child.type == "statement_block":
                 for stmt in child.children:

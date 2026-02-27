@@ -155,7 +155,6 @@ def build_wiki_graph(
         return await analyze_node(state)
 
     async def generate(state: WikiState) -> WikiState:
-        node = generate_node.__wrapped__.__func__(state)
         return await generate_node(state)
 
     async def validate(state: WikiState) -> WikiState:
