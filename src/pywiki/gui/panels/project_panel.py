@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QAction
 
-from pywiki.config.models import ProjectConfig
+from pywiki.config.models import ProjectConfig, LLMConfig
 
 
 class ProjectItemWidget(QFrame):
@@ -27,9 +27,15 @@ class ProjectItemWidget(QFrame):
     clicked = pyqtSignal(str)
     double_clicked = pyqtSignal(str)
     
-    def __init__(self, project: ProjectConfig, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        project: ProjectConfig,
+        default_llm: Optional[LLMConfig] = None,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         self.project = project
+        self._default_llm = default_llm
         self._init_ui()
     
     def _init_ui(self) -> None:
@@ -77,7 +83,9 @@ class ProjectItemWidget(QFrame):
             layout.addWidget(self.desc_label)
     
     def _update_status(self) -> None:
-        has_llm = bool(self.project.llm and self.project.llm.api_key)
+        project_has_llm = bool(self.project.llm and self.project.llm.api_key)
+        default_has_llm = bool(self._default_llm and self._default_llm.api_key)
+        has_llm = project_has_llm or default_has_llm
         if has_llm:
             self.status_label.setText("✅ 已配置")
             self.status_label.setStyleSheet("color: #28a745; font-size: 11px;")
@@ -99,6 +107,7 @@ class ProjectPanel(QWidget):
         super().__init__(parent)
         self._projects: list[ProjectConfig] = []
         self._project_widgets: dict[str, ProjectItemWidget] = {}
+        self._default_llm: Optional[LLMConfig] = None
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -141,8 +150,13 @@ class ProjectPanel(QWidget):
 
         layout.addLayout(button_layout)
 
-    def set_projects(self, projects: list[ProjectConfig]) -> None:
+    def set_projects(
+        self,
+        projects: list[ProjectConfig],
+        default_llm: Optional[LLMConfig] = None,
+    ) -> None:
         self._projects = projects
+        self._default_llm = default_llm
         self.project_list.clear()
         self._project_widgets.clear()
 
@@ -150,7 +164,7 @@ class ProjectPanel(QWidget):
             item = QListWidgetItem(self.project_list)
             item.setData(Qt.ItemDataRole.UserRole, project.name)
             
-            widget = ProjectItemWidget(project)
+            widget = ProjectItemWidget(project, default_llm)
             widget.adjustSize()
             item.setSizeHint(widget.sizeHint())
             

@@ -21,9 +21,46 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QFileDialog,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
 from pywiki.config.models import LLMConfig, LLMProvider
+
+
+class LLMTestThread(QThread):
+    """LLM 连接测试线程"""
+    
+    test_completed = pyqtSignal(bool, str)
+    
+    def __init__(self, config: LLMConfig):
+        super().__init__()
+        self.config = config
+    
+    def run(self):
+        try:
+            from pywiki.llm.client import LLMClient
+            import asyncio
+            
+            client = LLMClient(
+                endpoint=self.config.endpoint,
+                api_key=self.config.api_key.get_secret_value(),
+                model=self.config.model,
+                ca_cert=str(self.config.ca_cert) if self.config.ca_cert else None,
+                timeout=self.config.timeout,
+            )
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                success = loop.run_until_complete(client.test_connection())
+                if success:
+                    self.test_completed.emit(True, "连接测试成功！")
+                else:
+                    self.test_completed.emit(False, "连接测试失败：服务器无响应")
+            finally:
+                loop.close()
+                
+        except Exception as e:
+            self.test_completed.emit(False, f"连接测试失败：{str(e)}")
 
 
 class LLMConfigDialog(QDialog):
@@ -93,9 +130,9 @@ class LLMConfigDialog(QDialog):
 
         layout.addLayout(form_layout)
 
-        test_button = QPushButton("测试连接")
-        test_button.clicked.connect(self._test_connection)
-        layout.addWidget(test_button)
+        self._test_button = QPushButton("测试连接")
+        self._test_button.clicked.connect(self._test_connection)
+        layout.addWidget(self._test_button)
 
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -142,7 +179,42 @@ class LLMConfigDialog(QDialog):
             self.ca_cert_edit.setText(file_path)
 
     def _test_connection(self) -> None:
-        QMessageBox.information(self, "测试连接", "连接测试成功!")
+        config = self._get_temp_config()
+        if not config:
+            QMessageBox.warning(self, "警告", "请先填写 API Key")
+            return
+        
+        self._test_button.setText("测试中...")
+        self._test_button.setEnabled(False)
+        
+        self._test_thread = LLMTestThread(config)
+        self._test_thread.test_completed.connect(self._on_test_completed)
+        self._test_thread.start()
+    
+    def _get_temp_config(self) -> Optional[LLMConfig]:
+        """获取临时配置用于测试"""
+        api_key = self.api_key_edit.text().strip()
+        if not api_key:
+            return None
+        
+        ca_cert = self.ca_cert_edit.text().strip()
+        return LLMConfig(
+            provider=self.provider_combo.currentData(),
+            endpoint=self.endpoint_edit.text().strip(),
+            api_key=SecretStr(api_key),
+            model=self.model_edit.text().strip(),
+            ca_cert=Path(ca_cert) if ca_cert else None,
+            timeout=self.timeout_spin.value(),
+        )
+    
+    def _on_test_completed(self, success: bool, message: str) -> None:
+        self._test_button.setText("测试连接")
+        self._test_button.setEnabled(True)
+        
+        if success:
+            QMessageBox.information(self, "测试连接", message)
+        else:
+            QMessageBox.warning(self, "测试连接", message)
 
     def get_llm_config(self) -> Optional[LLMConfig]:
         api_key = self.api_key_edit.text().strip()

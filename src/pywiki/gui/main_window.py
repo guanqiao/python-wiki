@@ -136,6 +136,199 @@ class DocGeneratorThread(QThread):
         self._is_cancelled = True
 
 
+class IncrementalUpdateThread(QThread):
+    """增量更新线程"""
+    
+    progress_updated = pyqtSignal(int, str)
+    update_completed = pyqtSignal(bool, str, int)
+    
+    def __init__(self, project: ProjectConfig, llm_config: Optional[LLMConfig] = None):
+        super().__init__()
+        self.project = project
+        self.llm_config = llm_config
+    
+    def run(self):
+        try:
+            import asyncio
+            from pywiki.sync.incremental_updater import IncrementalUpdater
+            from pywiki.sync.change_detector import ChangeDetector
+            from pywiki.wiki.manager import WikiManager
+            from pywiki.llm.client import LLMClient
+            
+            llm_client = None
+            if self.llm_config:
+                llm_client = LLMClient(
+                    api_key=self.llm_config.api_key.get_secret_value(),
+                    endpoint=self.llm_config.endpoint,
+                    model=self.llm_config.model,
+                )
+            
+            wiki_manager = WikiManager(
+                project=self.project,
+                llm_client=llm_client,
+            )
+            
+            change_detector = ChangeDetector()
+            
+            updater = IncrementalUpdater(
+                wiki_manager=wiki_manager,
+                change_detector=change_detector,
+                progress_callback=lambda p, m: self.progress_updated.emit(p, m),
+            )
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(updater.update())
+                self.update_completed.emit(
+                    result.success,
+                    result.error or "更新完成",
+                    len(result.updated_files)
+                )
+            finally:
+                loop.close()
+                
+        except Exception as e:
+            logger.error(f"增量更新失败: {e}")
+            self.update_completed.emit(False, str(e), 0)
+
+
+class GitSyncThread(QThread):
+    """Git 同步线程"""
+    
+    sync_completed = pyqtSignal(bool, str, list)
+    
+    def __init__(self, project_path: Path):
+        super().__init__()
+        self.project_path = project_path
+    
+    def run(self):
+        try:
+            from pywiki.sync.git_change_detector import GitChangeDetector
+            
+            detector = GitChangeDetector(self.project_path)
+            changes = detector.get_uncommitted_changes()
+            
+            change_list = [
+                f"{change.change_type.value}: {change.file_path.name}"
+                for change in changes
+            ]
+            
+            self.sync_completed.emit(True, "同步完成", change_list)
+            
+        except Exception as e:
+            logger.error(f"Git 同步失败: {e}")
+            self.sync_completed.emit(False, str(e), [])
+
+
+class ProjectAnalyzeThread(QThread):
+    """项目分析线程"""
+    
+    analysis_completed = pyqtSignal(bool, dict, list)
+    
+    def __init__(self, project_path: Path):
+        super().__init__()
+        self.project_path = project_path
+    
+    def run(self):
+        try:
+            from pywiki.insights.tech_stack_analyzer import TechStackAnalyzer
+            
+            analyzer = TechStackAnalyzer()
+            analysis = analyzer.analyze_project(self.project_path)
+            
+            tech_stack = {}
+            for component in analysis.components:
+                category = component.category.value
+                if category not in tech_stack:
+                    tech_stack[category] = []
+                tech_stack[category].append(component.name)
+            
+            self.analysis_completed.emit(True, tech_stack, [])
+            
+        except Exception as e:
+            logger.error(f"项目分析失败: {e}")
+            self.analysis_completed.emit(False, {}, [])
+
+
+class KnowledgeExtractThread(QThread):
+    """知识提取线程"""
+    
+    extraction_completed = pyqtSignal(bool, dict)
+    
+    def __init__(self, project_path: Path):
+        super().__init__()
+        self.project_path = project_path
+    
+    def run(self):
+        try:
+            from pywiki.knowledge.implicit_extractor import ImplicitKnowledgeExtractor
+            from pywiki.parsers.python import PythonParser
+            
+            extractor = ImplicitKnowledgeExtractor()
+            parser = PythonParser()
+            
+            all_knowledge = []
+            
+            for py_file in self.project_path.rglob("*.py"):
+                try:
+                    if ".venv" in str(py_file) or "__pycache__" in str(py_file):
+                        continue
+                    
+                    content = py_file.read_text(encoding="utf-8")
+                    result = parser.parse_file(py_file)
+                    
+                    for module in result.modules:
+                        knowledge = extractor.extract_from_module(
+                            self.project_path,
+                            module,
+                            content
+                        )
+                        all_knowledge.extend(knowledge)
+                        
+                except Exception:
+                    continue
+            
+            decisions = [
+                {
+                    "title": k.title,
+                    "context": k.description,
+                    "status": k.priority.value
+                }
+                for k in all_knowledge
+                if k.knowledge_type.value == "design_decision"
+            ]
+            
+            tech_debts = [
+                {
+                    "title": k.title,
+                    "description": k.description,
+                    "priority": k.priority.value
+                }
+                for k in all_knowledge
+                if k.knowledge_type.value == "tech_debt"
+            ]
+            
+            motivations = "\n".join([
+                f"### {k.title}\n{k.description}"
+                for k in all_knowledge
+                if k.knowledge_type.value == "trade_off"
+            ])
+            
+            report = {
+                "total_knowledge": len(all_knowledge),
+                "decisions": decisions[:20],
+                "tech_debts": tech_debts[:20],
+                "motivations": motivations,
+            }
+            
+            self.extraction_completed.emit(True, report)
+            
+        except Exception as e:
+            logger.error(f"知识提取失败: {e}")
+            self.extraction_completed.emit(False, {})
+
+
 class MainWindow(QMainWindow):
     """主窗口"""
 
@@ -362,7 +555,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_project_list(self) -> None:
         config = self.settings.load_config()
-        self.project_panel.set_projects(config.projects)
+        self.project_panel.set_projects(config.projects, config.default_llm)
 
     def _set_current_project(self, project: ProjectConfig) -> None:
         self._current_project = project
@@ -492,6 +685,7 @@ class MainWindow(QMainWindow):
             new_llm = dialog.get_llm_config()
             if new_llm:
                 self.settings.update_default_llm(new_llm)
+                self._refresh_project_list()
                 self.statusbar.showMessage("LLM 配置已保存")
                 logger.info("LLM 配置已更新")
 
@@ -623,6 +817,29 @@ class MainWindow(QMainWindow):
 
         logger.info(f"开始增量更新: {self._current_project.name}")
         self.statusbar.showMessage("正在增量更新...")
+        self.progress_panel.add_log("INFO", "开始增量更新...")
+        
+        self._update_thread = IncrementalUpdateThread(
+            self._current_project,
+            self.settings.load_config().default_llm,
+        )
+        self._update_thread.progress_updated.connect(self._on_progress_update)
+        self._update_thread.update_completed.connect(self._on_update_completed)
+        self._update_thread.start()
+
+    def _on_update_completed(self, success: bool, message: str, updated_count: int) -> None:
+        if success:
+            self.progress_panel.add_log("SUCCESS", f"增量更新完成: 更新了 {updated_count} 个文件")
+            self.statusbar.showMessage(f"增量更新完成: {updated_count} 个文件")
+            
+            wiki_dir = self._current_project.path / self._current_project.wiki.output_dir
+            self.preview_panel.set_wiki_dir(wiki_dir)
+            
+            QMessageBox.information(self, "完成", f"增量更新完成！\n更新了 {updated_count} 个文件")
+        else:
+            self.progress_panel.add_log("ERROR", f"增量更新失败: {message}")
+            self.statusbar.showMessage(f"增量更新失败: {message}")
+            QMessageBox.warning(self, "失败", f"增量更新失败: {message}")
 
     def _on_sync(self) -> None:
         if not self._current_project:
@@ -631,6 +848,29 @@ class MainWindow(QMainWindow):
 
         logger.info(f"开始 Git 同步: {self._current_project.name}")
         self.statusbar.showMessage("正在同步 Git...")
+        self.progress_panel.add_log("INFO", "开始 Git 同步...")
+        
+        self._sync_thread = GitSyncThread(self._current_project.path)
+        self._sync_thread.sync_completed.connect(self._on_sync_completed)
+        self._sync_thread.start()
+
+    def _on_sync_completed(self, success: bool, message: str, changes: list) -> None:
+        if success:
+            change_count = len(changes)
+            self.progress_panel.add_log("SUCCESS", f"Git 同步完成: 发现 {change_count} 个变更")
+            self.statusbar.showMessage(f"Git 同步完成: {change_count} 个变更")
+            
+            if change_count > 0:
+                change_summary = "\n".join([f"• {c}" for c in changes[:10]])
+                if change_count > 10:
+                    change_summary += f"\n... 还有 {change_count - 10} 个变更"
+                QMessageBox.information(self, "同步完成", f"发现 {change_count} 个变更:\n{change_summary}")
+            else:
+                QMessageBox.information(self, "同步完成", "没有发现新的变更")
+        else:
+            self.progress_panel.add_log("ERROR", f"Git 同步失败: {message}")
+            self.statusbar.showMessage(f"Git 同步失败: {message}")
+            QMessageBox.warning(self, "失败", f"Git 同步失败: {message}")
 
     def _on_analyze(self) -> None:
         if not self._current_project:
@@ -641,15 +881,21 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage("正在分析项目架构...")
         self.progress_panel.add_log("INFO", "开始分析项目架构...")
         
-        self.insights_panel.update_tech_stack({
-            "语言": ["Python 3.10+"],
-            "GUI": ["PyQt6"],
-            "解析器": ["tree-sitter"],
-            "LLM": ["LangChain", "LangGraph"],
-        })
-        
-        logger.info(f"项目架构分析完成: {self._current_project.name}")
-        self.statusbar.showMessage("架构分析完成")
+        self._analyze_thread = ProjectAnalyzeThread(self._current_project.path)
+        self._analyze_thread.analysis_completed.connect(self._on_analyze_completed)
+        self._analyze_thread.start()
+
+    def _on_analyze_completed(self, success: bool, tech_stack: dict, patterns: list) -> None:
+        if success:
+            self.progress_panel.add_log("SUCCESS", "项目架构分析完成")
+            self.statusbar.showMessage("架构分析完成")
+            
+            self.insights_panel.update_tech_stack(tech_stack)
+            if patterns:
+                self.insights_panel.update_patterns(patterns)
+        else:
+            self.progress_panel.add_log("ERROR", "项目架构分析失败")
+            self.statusbar.showMessage("架构分析失败")
 
     def _on_extract_knowledge(self) -> None:
         if not self._current_project:
@@ -660,8 +906,29 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage("正在提取隐式知识...")
         self.progress_panel.add_log("INFO", "开始提取隐式知识...")
         
-        logger.info(f"隐式知识提取完成: {self._current_project.name}")
-        self.statusbar.showMessage("隐式知识提取完成")
+        self._knowledge_thread = KnowledgeExtractThread(self._current_project.path)
+        self._knowledge_thread.extraction_completed.connect(self._on_knowledge_completed)
+        self._knowledge_thread.start()
+
+    def _on_knowledge_completed(self, success: bool, knowledge_report: dict) -> None:
+        if success:
+            self.progress_panel.add_log("SUCCESS", "隐式知识提取完成")
+            self.statusbar.showMessage("隐式知识提取完成")
+            
+            decisions = knowledge_report.get("decisions", [])
+            debts = knowledge_report.get("tech_debts", [])
+            motivations = knowledge_report.get("motivations", "")
+            
+            self.knowledge_panel.update_design_decisions(decisions)
+            self.knowledge_panel.update_tech_debt(debts)
+            if motivations:
+                self.knowledge_panel.update_motivations(motivations)
+            
+            total = knowledge_report.get("total_knowledge", 0)
+            QMessageBox.information(self, "完成", f"隐式知识提取完成！\n发现 {total} 条知识")
+        else:
+            self.progress_panel.add_log("ERROR", "隐式知识提取失败")
+            self.statusbar.showMessage("隐式知识提取失败")
 
     def _on_export_adr(self) -> None:
         if not self._current_project:
