@@ -61,3 +61,8 @@ Thumbs.db
 
 # Project specific
 .trae/documents/plan_*.md
+
+# Test scripts with API keys
+test_ai_connection.py
+list_models.py
+test_output.txt

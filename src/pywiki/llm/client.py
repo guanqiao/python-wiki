@@ -24,8 +24,8 @@ class LLMClient(BaseLLMClient):
         api_key: str,
         model: str,
         ca_cert: Optional[str] = None,
-        timeout: int = 60,
-        max_retries: int = 3,
+        timeout: int = 300,
+        max_retries: int = 5,
         temperature: float = 0.7,
         max_tokens: int = 4096,
         provider: str = LLMProvider.OPENAI,
@@ -78,8 +78,9 @@ class LLMClient(BaseLLMClient):
         logger.debug("LLM 客户端设置完成")
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=4, max=60),
+        reraise=True
     )
     def generate(
         self,
@@ -106,8 +107,9 @@ class LLMClient(BaseLLMClient):
             raise
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=4, max=60),
+        reraise=True
     )
     async def agenerate(
         self,

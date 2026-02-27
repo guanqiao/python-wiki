@@ -168,6 +168,43 @@ class DocumentationAgent(BaseAgent):
             self.status = "error"
             return AgentResult.error_result(f"文档生成失败: {str(e)}")
 
+    async def _generate_single_doc(
+        self,
+        doc_type: DocType,
+        generator: Any,
+        context: AgentContext,
+        output_path: Path,
+        language: Language,
+        llm_client: Any,
+    ) -> tuple[DocType, Optional[Path], Optional[str]]:
+        """生成单个文档，返回 (doc_type, file_path, error)"""
+        logger.debug(f"开始生成文档: {doc_type.value}")
+        try:
+            doc_context = DocGeneratorContext(
+                project_path=context.project_path or Path("."),
+                project_name=context.project_name or "project",
+                parse_result=context.metadata.get("parse_result"),
+                language=language,
+                output_dir=output_path,
+                metadata={"llm_client": llm_client},
+            )
+
+            doc_result = await generator.generate(doc_context)
+
+            if doc_result.success:
+                file_path = output_path / doc_result.file_path.name
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_text(doc_result.content, encoding="utf-8")
+                logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
+                return (doc_type, file_path, None)
+            else:
+                logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}")
+                return (doc_type, None, doc_result.message)
+
+        except Exception as e:
+            logger.log_exception(f"文档生成异常: {doc_type.value}", e)
+            return (doc_type, None, str(e))
+
     async def _generate_all_docs(
         self,
         context: AgentContext,
@@ -176,52 +213,48 @@ class DocumentationAgent(BaseAgent):
         language: Language,
         llm_client: Any,
     ) -> DocGenerationResult:
-        """生成所有文档"""
+        """并发生成所有文档"""
         result = DocGenerationResult(success=True)
         output_path = context.project_path / output_dir if context.project_path else Path(output_dir)
 
         logger.debug(f"文档输出路径: {output_path}")
         generators = self._get_generators(language)
 
-        for doc_type in doc_types:
-            self._progress.current_doc = doc_type.value
-            self._notify_progress()
+        semaphore = asyncio.Semaphore(3)
 
-            generator = generators.get(doc_type)
-            if not generator:
-                logger.warning(f"未找到文档生成器: {doc_type.value}")
-                continue
-
-            logger.debug(f"开始生成文档: {doc_type.value}")
-            try:
-                doc_context = DocGeneratorContext(
-                    project_path=context.project_path or Path("."),
-                    project_name=context.project_name or "project",
-                    parse_result=context.metadata.get("parse_result"),
-                    language=language,
-                    output_dir=output_path,
-                    metadata={"llm_client": llm_client},
+        async def generate_with_semaphore(doc_type: DocType) -> tuple[DocType, Optional[Path], Optional[str]]:
+            async with semaphore:
+                self._progress.current_doc = doc_type.value
+                self._notify_progress()
+                
+                generator = generators.get(doc_type)
+                if not generator:
+                    logger.warning(f"未找到文档生成器: {doc_type.value}")
+                    return (doc_type, None, f"未找到生成器: {doc_type.value}")
+                
+                return await self._generate_single_doc(
+                    doc_type, generator, context, output_path, language, llm_client
                 )
 
-                doc_result = await generator.generate(doc_context)
+        tasks = [generate_with_semaphore(doc_type) for doc_type in doc_types]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                if doc_result.success:
-                    file_path = output_path / doc_result.file_path.name
-                    file_path.parent.mkdir(parents=True, exist_ok=True)
-                    file_path.write_text(doc_result.content, encoding="utf-8")
-                    result.generated_files.append(file_path)
-                    self._progress.completed_docs.append(doc_type.value)
-                    logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
-                else:
-                    result.failed_docs.append(doc_type.value)
-                    self._progress.errors.append(f"{doc_type.value}: {doc_result.message}")
-                    logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}")
-
-            except Exception as e:
+        for i, res in enumerate(results):
+            doc_type = doc_types[i]
+            if isinstance(res, Exception):
                 result.failed_docs.append(doc_type.value)
-                self._progress.errors.append(f"{doc_type.value}: {str(e)}")
-                logger.log_exception(f"文档生成异常: {doc_type.value}", e)
-
+                self._progress.errors.append(f"{doc_type.value}: {str(res)}")
+                logger.error(f"文档生成异常: {doc_type.value} - {res}")
+            else:
+                doc_type_result, file_path, error = res
+                if file_path:
+                    result.generated_files.append(file_path)
+                    self._progress.completed_docs.append(doc_type_result.value)
+                else:
+                    result.failed_docs.append(doc_type_result.value)
+                    if error:
+                        self._progress.errors.append(f"{doc_type_result.value}: {error}")
+            
             self._notify_progress()
 
         result.success = len(result.generated_files) > 0

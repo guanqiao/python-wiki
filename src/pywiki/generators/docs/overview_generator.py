@@ -162,6 +162,32 @@ class OverviewGenerator(BaseDocGenerator):
     async def _extract_tech_stack(self, context: DocGeneratorContext) -> dict[str, list[str]]:
         """提取技术栈"""
         tech_stack: dict[str, list[str]] = {}
+        
+        project_language = context.project_language or context.detect_project_language()
+        
+        if project_language == "java":
+            tech_stack = self._extract_java_tech_stack(context)
+        elif project_language == "typescript":
+            tech_stack = self._extract_typescript_tech_stack(context)
+        else:
+            tech_stack = self._extract_python_tech_stack(context)
+
+        if context.parse_result and context.parse_result.modules:
+            languages = set()
+            for module in context.parse_result.modules:
+                if hasattr(module, "file_path"):
+                    ext = Path(module.file_path).suffix if module.file_path else ""
+                    if ext:
+                        languages.add(ext)
+            
+            if languages:
+                tech_stack["语言"] = [ext.lstrip(".") for ext in languages]
+
+        return tech_stack
+    
+    def _extract_python_tech_stack(self, context: DocGeneratorContext) -> dict[str, list[str]]:
+        """提取 Python 项目技术栈"""
+        tech_stack: dict[str, list[str]] = {}
 
         pyproject_path = context.project_path / "pyproject.toml"
         if pyproject_path.exists():
@@ -200,16 +226,125 @@ class OverviewGenerator(BaseDocGenerator):
             except Exception:
                 pass
 
-        if context.parse_result and context.parse_result.modules:
-            languages = set()
-            for module in context.parse_result.modules:
-                if hasattr(module, "file_path"):
-                    ext = Path(module.file_path).suffix if module.file_path else ""
-                    if ext:
-                        languages.add(ext)
-            
-            if languages:
-                tech_stack["语言"] = [ext.lstrip(".") for ext in languages]
+        return tech_stack
+    
+    def _extract_java_tech_stack(self, context: DocGeneratorContext) -> dict[str, list[str]]:
+        """提取 Java 项目技术栈"""
+        tech_stack: dict[str, list[str]] = {}
+
+        pom_path = context.project_path / "pom.xml"
+        if pom_path.exists():
+            try:
+                content = pom_path.read_text(encoding="utf-8")
+                import re
+                
+                dependencies = re.findall(r"<groupId>([^<]+)</groupId>\s*<artifactId>([^<]+)</artifactId>", content)
+                
+                categories = {
+                    "Web框架": ["spring-boot", "spring-webmvc", "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut"],
+                    "ORM框架": ["hibernate", "mybatis", "jpa", "jooq", "querydsl"],
+                    "数据库": ["mysql", "postgresql", "mongodb", "redis", "h2", "oracle"],
+                    "测试": ["junit", "mockito", "testng", "assertj", "cucumber"],
+                    "构建工具": ["maven", "gradle"],
+                    "日志": ["log4j", "logback", "slf4j"],
+                    "JSON处理": ["jackson", "gson", "fastjson"],
+                    "HTTP客户端": ["okhttp", "apache-httpclient", "retrofit", "feign"],
+                    "微服务": ["spring-cloud", "dubbo", "grpc", "eureka", "nacos"],
+                    "安全": ["spring-security", "shiro", "jwt"],
+                }
+
+                for group_id, artifact_id in dependencies:
+                    artifact_lower = artifact_id.lower()
+                    group_lower = group_id.lower()
+                    for category, keywords in categories.items():
+                        if any(kw in artifact_lower or kw in group_lower for kw in keywords):
+                            if category not in tech_stack:
+                                tech_stack[category] = []
+                            tech_stack[category].append(artifact_id)
+                            break
+
+            except Exception:
+                pass
+
+        gradle_path = context.project_path / "build.gradle"
+        gradle_kts_path = context.project_path / "build.gradle.kts"
+        if gradle_path.exists() or gradle_kts_path.exists():
+            try:
+                gradle_file = gradle_path if gradle_path.exists() else gradle_kts_path
+                content = gradle_file.read_text(encoding="utf-8")
+                import re
+                
+                implementations = re.findall(r"implementation\s*['\"]([^'\":]+):([^'\":]+)", content)
+                implementations += re.findall(r"compile\s*['\"]([^'\":]+):([^'\":]+)", content)
+                
+                categories = {
+                    "Web框架": ["spring-boot", "spring-webmvc", "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut"],
+                    "ORM框架": ["hibernate", "mybatis", "jpa", "jooq", "querydsl"],
+                    "数据库": ["mysql", "postgresql", "mongodb", "redis", "h2", "oracle"],
+                    "测试": ["junit", "mockito", "testng", "assertj", "cucumber"],
+                    "构建工具": ["maven", "gradle"],
+                    "日志": ["log4j", "logback", "slf4j"],
+                    "JSON处理": ["jackson", "gson", "fastjson"],
+                    "HTTP客户端": ["okhttp", "apache-httpclient", "retrofit", "feign"],
+                    "微服务": ["spring-cloud", "dubbo", "grpc", "eureka", "nacos"],
+                    "安全": ["spring-security", "shiro", "jwt"],
+                }
+
+                for group_id, artifact_id in implementations:
+                    artifact_lower = artifact_id.lower()
+                    group_lower = group_id.lower()
+                    for category, keywords in categories.items():
+                        if any(kw in artifact_lower or kw in group_lower for kw in keywords):
+                            if category not in tech_stack:
+                                tech_stack[category] = []
+                            tech_stack[category].append(artifact_id)
+                            break
+
+            except Exception:
+                pass
+
+        return tech_stack
+    
+    def _extract_typescript_tech_stack(self, context: DocGeneratorContext) -> dict[str, list[str]]:
+        """提取 TypeScript 项目技术栈"""
+        tech_stack: dict[str, list[str]] = {}
+
+        package_path = context.project_path / "package.json"
+        if package_path.exists():
+            try:
+                import json
+                content = package_path.read_text(encoding="utf-8")
+                data = json.loads(content)
+                
+                deps = {}
+                deps.update(data.get("dependencies", {}))
+                deps.update(data.get("devDependencies", {}))
+
+                categories = {
+                    "前端框架": ["react", "vue", "angular", "svelte", "next", "nuxt", "gatsby", "solid"],
+                    "UI组件库": ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap"],
+                    "状态管理": ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai"],
+                    "构建工具": ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo"],
+                    "测试": ["jest", "vitest", "mocha", "cypress", "playwright", "testing-library"],
+                    "HTTP客户端": ["axios", "fetch", "ky", "got", "superagent"],
+                    "类型检查": ["typescript", "flow"],
+                    "代码质量": ["eslint", "prettier", "husky", "lint-staged"],
+                    "后端框架": ["express", "nestjs", "fastify", "koa", "hapi", "trpc"],
+                    "数据库": ["prisma", "typeorm", "sequelize", "mongoose", "drizzle"],
+                    "GraphQL": ["graphql", "apollo", "urql", "relay"],
+                }
+
+                for dep_name in deps.keys():
+                    dep_lower = dep_name.lower()
+                    for category, keywords in categories.items():
+                        if any(kw in dep_lower for kw in keywords):
+                            if category not in tech_stack:
+                                tech_stack[category] = []
+                            tech_stack[category].append(dep_name)
+                            break
+
+            except Exception:
+                pass
 
         return tech_stack
 

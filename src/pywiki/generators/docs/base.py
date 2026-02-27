@@ -61,6 +61,43 @@ class DocGeneratorContext:
     output_dir: Path = Path(".python-wiki/repowiki")
     template_dir: Optional[Path] = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    project_language: str = "python"
+
+    def detect_project_language(self) -> str:
+        """检测项目主要编程语言"""
+        if not self.project_path:
+            return "python"
+        
+        language_scores = {
+            "python": 0,
+            "java": 0,
+            "typescript": 0,
+        }
+        
+        python_files = list(self.project_path.rglob("*.py"))
+        python_files = [f for f in python_files if "__pycache__" not in str(f)]
+        language_scores["python"] = len(python_files)
+        
+        java_files = list(self.project_path.rglob("*.java"))
+        language_scores["java"] = len(java_files)
+        
+        ts_files = list(self.project_path.rglob("*.ts")) + list(self.project_path.rglob("*.tsx"))
+        ts_files = [f for f in ts_files if "node_modules" not in str(f)]
+        language_scores["typescript"] = len(ts_files)
+        
+        if (self.project_path / "pom.xml").exists() or (self.project_path / "build.gradle").exists():
+            language_scores["java"] += 100
+        
+        if (self.project_path / "package.json").exists():
+            language_scores["typescript"] += 100
+        
+        if (self.project_path / "pyproject.toml").exists() or (self.project_path / "setup.py").exists():
+            language_scores["python"] += 100
+        
+        if max(language_scores.values()) == 0:
+            return "python"
+        
+        return max(language_scores.items(), key=lambda x: x[1])[0]
 
     def get_output_path(self, doc_type: DocType) -> Path:
         """获取文档输出路径"""

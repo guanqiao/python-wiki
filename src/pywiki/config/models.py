@@ -32,8 +32,8 @@ class LLMConfig(BaseModel):
     api_key: SecretStr = Field(..., description="API Key")
     model: str = Field(default="gpt-4", description="模型名称")
     ca_cert: Optional[Path] = Field(default=None, description="CA 证书路径")
-    timeout: int = Field(default=60, description="请求超时时间(秒)")
-    max_retries: int = Field(default=3, description="最大重试次数")
+    timeout: int = Field(default=300, description="请求超时时间(秒)")
+    max_retries: int = Field(default=5, description="最大重试次数")
     temperature: float = Field(default=0.7, description="生成温度")
     max_tokens: int = Field(default=4096, description="最大 token 数")
 
