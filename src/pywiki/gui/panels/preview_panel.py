@@ -21,16 +21,73 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QThread
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtGui import QIcon
 
 import markdown
 
+MERMAID_JS_PATH = Path(__file__).parent.parent.parent / "static" / "js" / "mermaid.min.js"
+
 LANGUAGE_DISPLAY_NAMES = {
     "zh": "中文",
     "en": "English",
 }
+
+
+class DocumentLoadWorker(QThread):
+    """文档列表加载工作线程"""
+    
+    load_completed = pyqtSignal(list, dict)
+    
+    def __init__(self, wiki_dir: Path, parent=None):
+        super().__init__(parent)
+        self.wiki_dir = wiki_dir
+    
+    def run(self):
+        try:
+            doc_items = []
+            language_dirs = {}
+            
+            if not self.wiki_dir or not self.wiki_dir.exists():
+                self.load_completed.emit(doc_items, language_dirs)
+                return
+            
+            for lang_code in LANGUAGE_DISPLAY_NAMES.keys():
+                lang_path = self.wiki_dir / lang_code
+                if lang_path.is_dir():
+                    md_files = list(lang_path.rglob("*.md"))
+                    if md_files:
+                        language_dirs[lang_code] = str(lang_path)
+            
+            if language_dirs:
+                for lang_code, lang_path_str in language_dirs.items():
+                    lang_path = Path(lang_path_str)
+                    md_files = list(lang_path.rglob("*.md"))
+                    for md_file in sorted(md_files):
+                        rel_path = md_file.relative_to(lang_path)
+                        display_name = str(md_file.relative_to(self.wiki_dir))
+                        doc_items.append({
+                            "file_path": str(md_file),
+                            "display_name": display_name,
+                            "rel_path": str(rel_path),
+                            "lang_code": lang_code,
+                        })
+            else:
+                md_files = list(self.wiki_dir.rglob("*.md"))
+                for md_file in sorted(md_files):
+                    rel_path = md_file.relative_to(self.wiki_dir)
+                    display_name = str(rel_path)
+                    doc_items.append({
+                        "file_path": str(md_file),
+                        "display_name": display_name,
+                        "rel_path": str(rel_path),
+                        "lang_code": None,
+                    })
+            
+            self.load_completed.emit(doc_items, language_dirs)
+        except Exception as e:
+            self.load_completed.emit([], {})
 
 
 class PreviewPanel(QWidget):
@@ -42,6 +99,7 @@ class PreviewPanel(QWidget):
         super().__init__(parent)
         self._wiki_dir: Optional[Path] = None
         self._current_doc: Optional[str] = None
+        self._load_worker: Optional[DocumentLoadWorker] = None
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -73,6 +131,10 @@ class PreviewPanel(QWidget):
         self.browser_button = QPushButton("🌐 浏览器")
         self.browser_button.clicked.connect(self._on_open_in_browser)
         toolbar.addWidget(self.browser_button)
+
+        self.loading_label = QLabel("加载中...")
+        self.loading_label.setVisible(False)
+        toolbar.addWidget(self.loading_label)
 
         toolbar.addStretch()
         layout.addLayout(toolbar)
@@ -109,32 +171,86 @@ class PreviewPanel(QWidget):
     def set_wiki_dir(self, wiki_dir: Path) -> None:
         """设置 Wiki 目录"""
         self._wiki_dir = wiki_dir
-        self._load_document_list()
+        self._start_load_document_list()
 
-    def _load_document_list(self) -> None:
-        """加载文档列表"""
+    def _start_load_document_list(self) -> None:
+        """异步加载文档列表"""
         if not self._wiki_dir or not self._wiki_dir.exists():
             return
-
+        
+        if self._load_worker and self._load_worker.isRunning():
+            self._load_worker.quit()
+            self._load_worker.wait()
+        
         self.doc_selector.clear()
         self.doc_tree.clear()
+        self.loading_label.setVisible(True)
+        self.refresh_button.setEnabled(False)
+        
+        self._load_worker = DocumentLoadWorker(self._wiki_dir, self)
+        self._load_worker.load_completed.connect(self._on_load_completed)
+        self._load_worker.start()
 
-        language_dirs = self._detect_language_dirs()
-
+    def _on_load_completed(self, doc_items: list, language_dirs: dict) -> None:
+        """文档列表加载完成回调"""
+        self.loading_label.setVisible(False)
+        self.refresh_button.setEnabled(True)
+        
         root_item = QTreeWidgetItem(self.doc_tree, ["📁 文档根目录"])
-        root_item.setData(0, Qt.ItemDataRole.UserRole, str(self._wiki_dir))
+        root_item.setData(0, Qt.ItemDataRole.UserRole, str(self._wiki_dir) if self._wiki_dir else "")
 
         if language_dirs:
-            for lang_code, lang_dir in language_dirs.items():
+            for lang_code, lang_path_str in language_dirs.items():
                 lang_name = LANGUAGE_DISPLAY_NAMES.get(lang_code, lang_code)
                 lang_item = QTreeWidgetItem(root_item, [f"🌐 {lang_name} ({lang_code})"])
                 lang_item.setData(0, Qt.ItemDataRole.UserRole, "")
-                self._build_tree_for_dir(lang_item, lang_dir, self._wiki_dir)
+                lang_path = Path(lang_path_str)
+                self._build_tree_from_items(lang_item, doc_items, lang_code, lang_path)
                 lang_item.setExpanded(True)
         else:
-            self._build_tree_for_dir(root_item, self._wiki_dir, self._wiki_dir)
+            self._build_tree_from_items(root_item, doc_items, None, self._wiki_dir)
 
         self.doc_tree.expandAll()
+
+    def _build_tree_from_items(
+        self,
+        parent_item: QTreeWidgetItem,
+        doc_items: list,
+        lang_code: Optional[str],
+        base_dir: Path,
+    ) -> None:
+        """从加载的文档项构建树"""
+        for item in doc_items:
+            if lang_code and item.get("lang_code") != lang_code:
+                continue
+            if not lang_code and item.get("lang_code"):
+                continue
+            
+            self.doc_selector.addItem(item["display_name"], item["file_path"])
+            
+            rel_path = item["rel_path"]
+            parts = Path(rel_path).parts
+            current_parent = parent_item
+            
+            for i, part in enumerate(parts[:-1]):
+                found = False
+                for j in range(current_parent.childCount()):
+                    child = current_parent.child(j)
+                    if child.text(0) == f"📁 {part}":
+                        current_parent = child
+                        found = True
+                        break
+                if not found:
+                    new_item = QTreeWidgetItem(current_parent, [f"📁 {part}"])
+                    new_item.setData(0, Qt.ItemDataRole.UserRole, "")
+                    current_parent = new_item
+
+            file_item = QTreeWidgetItem(current_parent, [f"📄 {parts[-1]}"])
+            file_item.setData(0, Qt.ItemDataRole.UserRole, item["file_path"])
+
+    def _load_document_list(self) -> None:
+        """同步加载文档列表（兼容旧代码）"""
+        self._start_load_document_list()
 
     def _detect_language_dirs(self) -> dict[str, Path]:
         """检测语言子目录"""
@@ -205,7 +321,7 @@ class PreviewPanel(QWidget):
                 break
 
     def _on_refresh(self) -> None:
-        self._load_document_list()
+        self._start_load_document_list()
         if self._current_doc:
             self._load_document(Path(self._current_doc))
 
@@ -254,6 +370,10 @@ class PreviewPanel(QWidget):
             content,
             extensions=["tables", "fenced_code", "toc", "codehilite"]
         )
+
+        mermaid_js_content = ""
+        if MERMAID_JS_PATH.exists():
+            mermaid_js_content = MERMAID_JS_PATH.read_text(encoding="utf-8")
 
         return f"""
         <!DOCTYPE html>
@@ -364,7 +484,8 @@ class PreviewPanel(QWidget):
                     }}
                 }}
             </script>
-            <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" onload="initMermaid()" onerror="console.error('Mermaid 加载失败')"></script>
+            <script>{mermaid_js_content}</script>
+            <script>initMermaid()</script>
         </head>
         <body>
             {html}

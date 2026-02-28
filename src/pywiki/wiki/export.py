@@ -12,6 +12,8 @@ from typing import Optional, List
 import markdown
 from pywiki.monitor.logger import logger
 
+MERMAID_JS_PATH = Path(__file__).parent.parent / "static" / "js" / "mermaid.min.js"
+
 
 class WikiExporter:
     """Wiki 文档导出器"""
@@ -124,8 +126,11 @@ class WikiExporter:
             ]
         )
 
-        # 检测 Mermaid 图表并添加标记
         html_content = self._process_mermaid(html_content)
+
+        mermaid_js_content = ""
+        if MERMAID_JS_PATH.exists():
+            mermaid_js_content = MERMAID_JS_PATH.read_text(encoding="utf-8")
 
         html_template = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -133,7 +138,7 @@ class WikiExporter:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title}</title>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>{mermaid_js_content}</script>
     <style>
         * {{
             box-sizing: border-box;
