@@ -1028,3 +1028,246 @@ public class MultiMethodController {
 
         cls = module.classes[0]
         assert len(cls.methods) >= 5
+
+
+class TestTransactionalFeatures:
+    """事务特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_transactional(self, parser, tmp_path):
+        """测试解析事务注解"""
+        code = """
+package com.example.service;
+
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.stereotype.Service;
+
+@Service
+@Transactional(propagation = "REQUIRES_NEW", isolation = "READ_COMMITTED", timeout = 30)
+public class OrderService {
+
+    @Transactional(readOnly = true)
+    public Order findById(Long id) {
+        return null;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void createOrder(Order order) {
+    }
+}
+"""
+        file_path = tmp_path / "OrderService.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        docstring = cls.docstring or ""
+        assert "事务管理" in docstring or "Transactional" in docstring
+
+
+class TestCacheFeatures:
+    """缓存特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_cacheable(self, parser, tmp_path):
+        """测试解析缓存注解"""
+        code = """
+package com.example.service;
+
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.stereotype.Service;
+
+@Service
+public class CacheService {
+
+    @Cacheable(value = "users", key = "#id")
+    public User findById(Long id) {
+        return null;
+    }
+
+    @CacheEvict(value = "users", allEntries = true)
+    public void clearCache() {
+    }
+}
+"""
+        file_path = tmp_path / "CacheService.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+
+
+class TestAsyncFeatures:
+    """异步特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_async(self, parser, tmp_path):
+        """测试解析异步注解"""
+        code = """
+package com.example.service;
+
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class AsyncService {
+
+    @Async
+    public CompletableFuture<String> asyncMethod() {
+        return CompletableFuture.completedFuture("done");
+    }
+}
+"""
+        file_path = tmp_path / "AsyncService.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+
+
+class TestMapStructFeatures:
+    """MapStruct特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_mapstruct_mapper(self, parser, tmp_path):
+        """测试解析MapStruct Mapper"""
+        code = """
+package com.example.mapper;
+
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.factory.Mappers;
+
+@Mapper(componentModel = "spring", uses = {DateMapper.class})
+public interface UserMapper {
+
+    @Mapping(source = "firstName", target = "name")
+    UserDTO toDTO(User user);
+
+    User toEntity(UserDTO dto);
+}
+"""
+        file_path = tmp_path / "UserMapper.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        docstring = cls.docstring or ""
+        assert "MapStruct" in docstring or "Mapper" in docstring
+
+
+class TestJavaDocParsing:
+    """JavaDoc解析测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_javadoc_tags(self, parser, tmp_path):
+        """测试解析JavaDoc标签"""
+        code = """
+package com.example.service;
+
+/**
+ * User Service Interface
+ * 
+ * @author John Doe
+ * @version 1.0
+ * @since 2024-01-01
+ */
+public interface UserService {
+
+    /**
+     * Find user by ID
+     * 
+     * @param id user ID
+     * @return user object
+     * @throws IllegalArgumentException if ID is null
+     * @see User
+     */
+    User findById(Long id);
+}
+"""
+        file_path = tmp_path / "UserService.java"
+        file_path.write_text(code, encoding="utf-8")
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        javadoc = parser._parse_javadoc(cls.docstring or "")
+        assert javadoc.author == "John Doe" or "John Doe" in javadoc.description
+
+
+class TestComplexGenerics:
+    """复杂泛型测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_nested_generics(self, parser, tmp_path):
+        """测试解析嵌套泛型"""
+        code = """
+package com.example.repository;
+
+import java.util.List;
+import java.util.Map;
+
+public class GenericRepository {
+
+    public Map<String, List<User>> findByGroup() {
+        return null;
+    }
+
+    public List<Map<String, Object>> findAsMap() {
+        return null;
+    }
+}
+"""
+        file_path = tmp_path / "GenericRepository.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        assert len(cls.methods) >= 2

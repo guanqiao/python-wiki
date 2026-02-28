@@ -180,9 +180,67 @@ class DatabaseGenerator(BaseDocGenerator):
                         table["columns"].append(column)
 
                     if table["columns"]:
+                        table["indexes"] = self._extract_jpa_indexes(cls_docstring, cls)
                         tables.append(table)
 
         return tables[:30]
+
+    def _extract_jpa_indexes(self, cls_docstring: str, cls: Any) -> list[dict[str, Any]]:
+        """提取JPA索引信息"""
+        indexes = []
+        
+        if hasattr(cls, 'decorators') and cls.decorators:
+            for decorator in cls.decorators:
+                decorator_lower = decorator.lower()
+                
+                if "@table" in decorator_lower:
+                    indexes_pattern = r'indexes\s*=\s*\{([^}]+)\}'
+                    indexes_match = re.search(indexes_pattern, decorator, re.IGNORECASE)
+                    if indexes_match:
+                        indexes_content = indexes_match.group(1)
+                        
+                        index_pattern = r'@Index\s*\(\s*name\s*=\s*["\']([^"\']+)["\'](?:\s*,\s*columnList\s*=\s*["\']([^"\']+)["\']|[^)]*)\)'
+                        for match in re.finditer(index_pattern, indexes_content):
+                            index_name = match.group(1)
+                            column_list = match.group(2) or ""
+                            indexes.append({
+                                "name": index_name,
+                                "columns": [c.strip() for c in column_list.split(",") if c.strip()],
+                                "type": "INDEX",
+                                "unique": False,
+                            })
+                    
+                    unique_pattern = r'uniqueConstraints\s*=\s*\{([^}]+)\}'
+                    unique_match = re.search(unique_pattern, decorator, re.IGNORECASE)
+                    if unique_match:
+                        unique_content = unique_match.group(1)
+                        
+                        uc_pattern = r'@UniqueConstraint\s*\(\s*(?:name\s*=\s*["\']([^"\']+)["\']\s*,\s*)?columnNames\s*=\s*\{([^}]+)\}'
+                        for match in re.finditer(uc_pattern, unique_content, re.IGNORECASE):
+                            uc_name = match.group(1) or f"uk_{len(indexes)}"
+                            column_names = match.group(2)
+                            columns = re.findall(r'["\']([^"\']+)["\']', column_names)
+                            indexes.append({
+                                "name": uc_name,
+                                "columns": columns,
+                                "type": "UNIQUE",
+                                "unique": True,
+                            })
+        
+        for prop in getattr(cls, 'class_variables', []):
+            if hasattr(prop, 'decorators') and prop.decorators:
+                for dec in prop.decorators:
+                    dec_lower = dec.lower()
+                    if "@column" in dec_lower:
+                        if "unique = true" in dec_lower or "unique=true" in dec_lower:
+                            indexes.append({
+                                "name": f"uk_{prop.name}",
+                                "columns": [prop.name],
+                                "type": "UNIQUE",
+                                "unique": True,
+                            })
+        
+        return indexes
 
     def _extract_java_tables(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
         """提取 Java 数据库模型"""

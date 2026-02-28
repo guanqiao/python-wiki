@@ -56,6 +56,40 @@ class JpaColumnInfo:
     column_definition: Optional[str] = None
 
 
+@dataclass
+class JavaDocTag:
+    """JavaDoc标签信息"""
+    name: str
+    value: str = ""
+    description: str = ""
+
+
+@dataclass
+class JavaDocInfo:
+    """JavaDoc完整信息"""
+    description: str = ""
+    tags: list[JavaDocTag] = field(default_factory=list)
+    params: dict[str, str] = field(default_factory=dict)
+    returns: str = ""
+    throws: list[tuple[str, str]] = field(default_factory=list)
+    see_also: list[str] = field(default_factory=list)
+    since: Optional[str] = None
+    deprecated: bool = False
+    author: Optional[str] = None
+    version: Optional[str] = None
+
+
+@dataclass
+class GenericTypeInfo:
+    """泛型类型信息"""
+    name: str = ""
+    bounds: list[str] = field(default_factory=list)
+    is_wildcard: bool = False
+    wildcard_bound: Optional[str] = None
+    wildcard_type: Optional[str] = None  # extends, super
+    type_arguments: list[Any] = field(default_factory=list)
+
+
 def _get_java_language():
     """获取 tree-sitter Java 语言实例"""
     try:
@@ -80,6 +114,10 @@ class JavaParser(BaseParser):
     SPRING_CONFIG = {"Configuration", "Bean", "Value", "Profile", "ConditionalOnProperty", "ConditionalOnClass", "ConditionalOnBean"}
     SPRING_SECURITY = {"PreAuthorize", "PostAuthorize", "Secured", "RolesAllowed", "PermitAll", "DenyAll"}
     SPRING_PARAMS = {"RequestParam", "PathVariable", "RequestBody", "RequestHeader", "CookieValue", "MatrixVariable", "RequestPart"}
+    SPRING_TRANSACTIONAL = {"Transactional"}
+    SPRING_CACHE = {"Cacheable", "CacheEvict", "CachePut", "Caching", "CacheConfig"}
+    SPRING_ASYNC = {"Async", "EventListener", "TransactionalEventListener"}
+    SPRING_RETRY = {"Retryable", "Recover", "Backoff"}
 
     MYBATIS_PLUS = {"TableName", "TableId", "TableField", "Version", "LogicDelete"}
     MYBATIS_MAPPER = {"Mapper", "Select", "Insert", "Update", "Delete"}
@@ -92,6 +130,7 @@ class JavaParser(BaseParser):
                   "Temporal", "Enumerated", "Lob", "Transient", "Version"}
     JPA_RELATIONSHIP = {"OneToOne", "OneToMany", "ManyToOne", "ManyToMany", "JoinColumn", "JoinTable"}
     JPA_INDEX = {"Index", "UniqueConstraint"}
+    JPA_ID = {"IdClass", "EmbeddedId", "Embedded"}
 
     DUBBO = {"DubboService", "DubboReference", "Service", "Reference", "DubboComponent"}
     
@@ -103,6 +142,8 @@ class JavaParser(BaseParser):
     QUARTZ = {"Scheduled", "Schedules", "DisallowConcurrentExecution", "PersistJobDataAfterExecution"}
     
     FEIGN = {"FeignClient", "RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"}
+    
+    MAPSTRUCT = {"Mapper", "Mapping", "Mappings", "InheritInverseConfiguration", "BeanMapping"}
 
     def __init__(
         self,
@@ -304,6 +345,10 @@ class JavaParser(BaseParser):
         class_info = self._analyze_dubbo_features(class_info, annotations, source)
         class_info = self._analyze_validation_features(class_info, annotations, source)
         class_info = self._analyze_feign_features(class_info, annotations, source)
+        class_info = self._analyze_transactional_features(class_info, annotations, source)
+        class_info = self._analyze_cache_features(class_info, annotations, source)
+        class_info = self._analyze_async_features(class_info, annotations, source)
+        class_info = self._analyze_mapstruct_features(class_info, annotations, source)
 
         return class_info
 
@@ -357,6 +402,9 @@ class JavaParser(BaseParser):
         class_info = self._analyze_mybatis_mapper(class_info, annotations)
         class_info = self._analyze_feign_features(class_info, annotations, source)
         class_info = self._analyze_dubbo_features(class_info, annotations, source)
+        class_info = self._analyze_transactional_features(class_info, annotations, source)
+        class_info = self._analyze_cache_features(class_info, annotations, source)
+        class_info = self._analyze_mapstruct_features(class_info, annotations, source)
 
         return class_info
 
@@ -555,6 +603,8 @@ class JavaParser(BaseParser):
                 name = self._get_node_text(child, source)
             elif child.type == "type_identifier" or child.type == "scoped_type_identifier":
                 type_hint = self._get_node_text(child, source)
+            elif child.type == "generic_type":
+                type_hint = self._parse_generic_type(child, source)
             elif child.type == "annotation":
                 ann_name = self._parse_annotation_name(child, source)
                 if ann_name:
@@ -570,6 +620,84 @@ class JavaParser(BaseParser):
                 param_info.description = f"Annotations: {', '.join(annotations)}"
             return param_info
         return None
+
+    def _parse_generic_type(self, node, source: str) -> str:
+        """解析泛型类型，返回完整类型字符串"""
+        result = []
+        
+        for child in node.children:
+            if child.type == "type_identifier":
+                result.append(self._get_node_text(child, source))
+            elif child.type == "scoped_type_identifier":
+                result.append(self._get_node_text(child, source))
+            elif child.type == "type_arguments":
+                args = self._parse_type_arguments(child, source)
+                result.append(f"<{args}>")
+            elif child.type == "generic_type":
+                result.append(self._parse_generic_type(child, source))
+        
+        return "".join(result) if result else ""
+
+    def _parse_type_arguments(self, node, source: str) -> str:
+        """解析类型参数列表"""
+        args = []
+        
+        for child in node.children:
+            if child.type == "type_identifier":
+                args.append(self._get_node_text(child, source))
+            elif child.type == "scoped_type_identifier":
+                args.append(self._get_node_text(child, source))
+            elif child.type == "generic_type":
+                args.append(self._parse_generic_type(child, source))
+            elif child.type == "wildcard":
+                args.append(self._parse_wildcard(child, source))
+        
+        return ", ".join(args)
+
+    def _parse_wildcard(self, node, source: str) -> str:
+        """解析通配符类型"""
+        result = "?"
+        
+        for child in node.children:
+            if child.type == "extends":
+                bound_type = self._get_next_type(child, source)
+                if bound_type:
+                    result = f"? extends {bound_type}"
+            elif child.type == "super":
+                bound_type = self._get_next_type(child, source)
+                if bound_type:
+                    result = f"? super {bound_type}"
+        
+        return result
+
+    def _get_next_type(self, node, source: str) -> Optional[str]:
+        """获取节点后面的类型"""
+        parent = node.parent
+        if parent:
+            found = False
+            for child in parent.children:
+                if found:
+                    if child.type in ("type_identifier", "scoped_type_identifier"):
+                        return self._get_node_text(child, source)
+                    elif child.type == "generic_type":
+                        return self._parse_generic_type(child, source)
+                if child == node:
+                    found = True
+        return None
+
+    def _parse_type_parameter(self, node, source: str) -> GenericTypeInfo:
+        """解析类型参数（泛型定义）"""
+        info = GenericTypeInfo()
+        
+        for child in node.children:
+            if child.type == "type_identifier":
+                info.name = self._get_node_text(child, source)
+            elif child.type == "type_bound":
+                for bound_child in child.children:
+                    if bound_child.type in ("type_identifier", "scoped_type_identifier"):
+                        info.bounds.append(self._get_node_text(bound_child, source))
+        
+        return info
 
     def _parse_field(self, node, source: str) -> list[PropertyInfo]:
         """解析字段声明"""
@@ -916,6 +1044,144 @@ class JavaParser(BaseParser):
 
         return class_info
 
+    def _analyze_transactional_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析事务特性"""
+        tx_info = []
+
+        if "Transactional" in annotations:
+            tx_info.append("事务管理")
+            
+            pattern = r'@Transactional\s*\(([^)]*)\)'
+            match = re.search(pattern, source)
+            if match:
+                attrs_str = match.group(1)
+                attrs = self._parse_annotation_attributes(attrs_str)
+                
+                if "propagation" in attrs:
+                    tx_info.append(f"传播: {attrs['propagation']}")
+                if "isolation" in attrs:
+                    tx_info.append(f"隔离: {attrs['isolation']}")
+                if "timeout" in attrs:
+                    tx_info.append(f"超时: {attrs['timeout']}s")
+                if "readOnly" in attrs and attrs['readOnly']:
+                    tx_info.append("只读")
+                if "rollbackFor" in attrs:
+                    tx_info.append(f"回滚: {attrs['rollbackFor']}")
+
+        if tx_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(tx_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _analyze_cache_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析缓存特性"""
+        cache_info = []
+
+        cache_annotations = self.SPRING_CACHE & set(annotations)
+        if cache_annotations:
+            cache_info.append(f"缓存: {', '.join(cache_annotations)}")
+            
+            for ann in cache_annotations:
+                pattern = rf'@{ann}\s*\(([^)]*)\)'
+                match = re.search(pattern, source)
+                if match:
+                    attrs_str = match.group(1)
+                    attrs = self._parse_annotation_attributes(attrs_str)
+                    
+                    if "value" in attrs or "cacheNames" in attrs:
+                        cache_name = attrs.get("value") or attrs.get("cacheNames")
+                        cache_info.append(f"缓存名: {cache_name}")
+                    if "key" in attrs:
+                        cache_info.append(f"Key: {attrs['key']}")
+                    if "condition" in attrs:
+                        cache_info.append(f"条件: {attrs['condition']}")
+
+        if cache_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(cache_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _analyze_async_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析异步特性"""
+        async_info = []
+
+        if "Async" in annotations:
+            async_info.append("异步执行")
+            
+            pattern = r'@Async\s*\(([^)]*)\)'
+            match = re.search(pattern, source)
+            if match:
+                attrs_str = match.group(1)
+                attrs = self._parse_annotation_attributes(attrs_str)
+                if "value" in attrs:
+                    async_info.append(f"执行器: {attrs['value']}")
+
+        if "EventListener" in annotations:
+            async_info.append("事件监听器")
+            
+            pattern = r'@EventListener\s*\(([^)]*)\)'
+            match = re.search(pattern, source)
+            if match:
+                attrs_str = match.group(1)
+                attrs = self._parse_annotation_attributes(attrs_str)
+                if "classes" in attrs:
+                    async_info.append(f"事件类型: {attrs['classes']}")
+
+        if "TransactionalEventListener" in annotations:
+            async_info.append("事务事件监听器")
+
+        if async_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(async_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _analyze_mapstruct_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析MapStruct特性"""
+        mapstruct_info = []
+
+        if "Mapper" in annotations:
+            mapstruct_info.append("MapStruct Mapper")
+            
+            pattern = r'@Mapper\s*\(([^)]*)\)'
+            match = re.search(pattern, source)
+            if match:
+                attrs_str = match.group(1)
+                attrs = self._parse_annotation_attributes(attrs_str)
+                
+                if "componentModel" in attrs:
+                    mapstruct_info.append(f"组件模型: {attrs['componentModel']}")
+                if "uses" in attrs:
+                    mapstruct_info.append(f"引用: {attrs['uses']}")
+
+        if mapstruct_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(mapstruct_info)}\n{existing_doc}".strip()
+
+        return class_info
+
     def _extract_route_mapping(self, source: str, annotations: list[str]) -> Optional[str]:
         """提取路由映射信息"""
         for ann in annotations:
@@ -994,6 +1260,101 @@ class JavaParser(BaseParser):
             return "\n".join(cleaned)
 
         return None
+
+    def _parse_javadoc(self, javadoc_text: str) -> JavaDocInfo:
+        """解析JavaDoc文本，提取标签信息"""
+        info = JavaDocInfo()
+        
+        if not javadoc_text:
+            return info
+        
+        lines = javadoc_text.split("\n")
+        description_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            if stripped.startswith("@param"):
+                match = re.match(r'@param\s+(\w+)\s*(.*)', stripped)
+                if match:
+                    param_name = match.group(1)
+                    param_desc = match.group(2).strip()
+                    info.params[param_name] = param_desc
+                    info.tags.append(JavaDocTag(name="param", value=param_name, description=param_desc))
+            
+            elif stripped.startswith("@return"):
+                match = re.match(r'@return\s*(.*)', stripped)
+                if match:
+                    info.returns = match.group(1).strip()
+                    info.tags.append(JavaDocTag(name="return", description=info.returns))
+            
+            elif stripped.startswith("@throws") or stripped.startswith("@exception"):
+                match = re.match(r'@(?:throws|exception)\s+(\w+)\s*(.*)', stripped)
+                if match:
+                    exception_type = match.group(1)
+                    exception_desc = match.group(2).strip()
+                    info.throws.append((exception_type, exception_desc))
+                    info.tags.append(JavaDocTag(name="throws", value=exception_type, description=exception_desc))
+            
+            elif stripped.startswith("@see"):
+                match = re.match(r'@see\s+(.+)', stripped)
+                if match:
+                    see_ref = match.group(1).strip()
+                    info.see_also.append(see_ref)
+                    info.tags.append(JavaDocTag(name="see", description=see_ref))
+            
+            elif stripped.startswith("@since"):
+                match = re.match(r'@since\s+(.+)', stripped)
+                if match:
+                    info.since = match.group(1).strip()
+                    info.tags.append(JavaDocTag(name="since", description=info.since))
+            
+            elif stripped.startswith("@deprecated"):
+                info.deprecated = True
+                match = re.match(r'@deprecated\s*(.*)', stripped)
+                if match:
+                    info.tags.append(JavaDocTag(name="deprecated", description=match.group(1).strip()))
+                else:
+                    info.tags.append(JavaDocTag(name="deprecated"))
+            
+            elif stripped.startswith("@author"):
+                match = re.match(r'@author\s+(.+)', stripped)
+                if match:
+                    info.author = match.group(1).strip()
+                    info.tags.append(JavaDocTag(name="author", description=info.author))
+            
+            elif stripped.startswith("@version"):
+                match = re.match(r'@version\s+(.+)', stripped)
+                if match:
+                    info.version = match.group(1).strip()
+                    info.tags.append(JavaDocTag(name="version", description=info.version))
+            
+            elif stripped.startswith("@"):
+                match = re.match(r'@(\w+)\s*(.*)', stripped)
+                if match:
+                    tag_name = match.group(1)
+                    tag_value = match.group(2).strip()
+                    info.tags.append(JavaDocTag(name=tag_name, description=tag_value))
+            
+            elif not stripped.startswith("@"):
+                if not any(t.name in ("param", "return", "throws", "see", "since", "deprecated", "author", "version") for t in info.tags):
+                    description_lines.append(line)
+        
+        info.description = self._process_inline_tags("\n".join(description_lines).strip())
+        
+        return info
+
+    def _process_inline_tags(self, text: str) -> str:
+        """处理内联标签 {@link}, {@code} 等"""
+        if not text:
+            return text
+        
+        text = re.sub(r'\{@link\s+([^}]+)\}', r'\1', text)
+        text = re.sub(r'\{@code\s+([^}]+)\}', r'`\1`', text)
+        text = re.sub(r'\{@literal\s+([^}]+)\}', r'\1', text)
+        text = re.sub(r'\{@value\s*\}', '', text)
+        
+        return text
 
     def _extract_dependencies(self, module_info: ModuleInfo) -> list[DependencyInfo]:
         """提取依赖关系"""

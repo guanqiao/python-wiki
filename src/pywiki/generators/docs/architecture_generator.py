@@ -1,5 +1,6 @@
 """
 架构文档生成器
+支持多种架构风格的自动识别和智能图表生成
 """
 
 import json
@@ -15,6 +16,12 @@ from pywiki.generators.docs.base import (
 )
 from pywiki.config.models import Language
 from pywiki.agents.architecture_agent import ArchitectureAgent, AgentContext
+from pywiki.generators.diagrams.architecture import (
+    ArchitectureDiagramGenerator,
+    ArchitectureStyle,
+    ComponentType,
+)
+from pywiki.generators.diagrams.package_diagram import PackageDiagramGenerator
 
 
 class ArchitectureDocGenerator(BaseDocGenerator):
@@ -23,6 +30,39 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     doc_type = DocType.ARCHITECTURE
     template_name = "architecture.md.j2"
 
+    STANDARD_LIBS = {
+        "typing", "os", "sys", "json", "pathlib", "asyncio", "abc",
+        "dataclasses", "collections", "functools", "itertools", "re",
+        "logging", "time", "datetime", "copy", "enum", "io", "warnings",
+        "contextlib", "threading", "multiprocessing", "concurrent",
+        "subprocess", "shutil", "tempfile", "hashlib", "hmac", "secrets",
+        "argparse", "configparser", "traceback", "inspect", "dis",
+        "unittest", "pytest", "mock", "socket", "ssl", "http", "urllib",
+        "email", "html", "xml", "csv", "sqlite3", "heapq", "bisect",
+        "array", "weakref", "types", "numbers", "math", "random",
+        "statistics", "decimal", "fractions", "operator", "pickle",
+    }
+
+    EXTERNAL_CATEGORIES = {
+        "web_framework": ["fastapi", "flask", "django", "tornado", "starlette", "sanic", "aiohttp"],
+        "database": ["sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "sqlite", "databases"],
+        "orm": ["sqlalchemy", "peewee", "tortoise", "django.db", "pony"],
+        "validation": ["pydantic", "marshmallow", "cerberus", "voluptuous"],
+        "testing": ["pytest", "unittest", "mock", "hypothesis", "faker"],
+        "async": ["asyncio", "aiohttp", "aiofiles", "aioredis", "aiomysql"],
+        "http_client": ["requests", "httpx", "aiohttp", "urllib3", "http.client"],
+        "serialization": ["json", "pickle", "yaml", "msgpack", "orjson"],
+        "cli": ["click", "argparse", "typer", "rich"],
+        "config": ["pydantic", "dynaconf", "python-dotenv", "configparser"],
+        "logging": ["logging", "loguru", "structlog"],
+        "task_queue": ["celery", "rq", "dramatiq", "huey"],
+        "cache": ["redis", "memcache", "cachetools", "aiocache"],
+        "message_queue": ["kafka", "pika", "aio_pika", "celery"],
+        "security": ["cryptography", "jwt", "passlib", "bcrypt"],
+        "data_science": ["pandas", "numpy", "scipy", "sklearn"],
+        "ml": ["torch", "tensorflow", "sklearn", "transformers"],
+    }
+
     def __init__(
         self,
         language: Language = Language.ZH,
@@ -30,6 +70,8 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     ):
         super().__init__(language, template_dir)
         self.architecture_agent = ArchitectureAgent()
+        self.arch_diagram_gen = ArchitectureDiagramGenerator()
+        self.package_diagram_gen = PackageDiagramGenerator()
 
     async def generate(self, context: DocGeneratorContext) -> DocGeneratorResult:
         """生成架构文档"""
@@ -48,16 +90,24 @@ class ArchitectureDocGenerator(BaseDocGenerator):
 
             content = self.render_template(
                 description=f"{context.project_name} 系统架构文档",
+                architecture_style=arch_data.get("architecture_style", ""),
+                architecture_diagram=arch_data.get("architecture_diagram", ""),
                 c4_context=arch_data.get("c4_context", ""),
                 c4_container=arch_data.get("c4_container", ""),
                 c4_component=arch_data.get("c4_component", ""),
                 dependency_graph=arch_data.get("dependency_graph", ""),
+                package_diagram=arch_data.get("package_diagram", ""),
+                data_flow_diagram=arch_data.get("data_flow_diagram", ""),
                 layers=arch_data.get("layers", []),
                 metrics=arch_data.get("metrics", []),
                 quality_metrics=arch_data.get("quality_metrics", {}),
                 circular_dependencies=arch_data.get("circular_dependencies", []),
                 hot_spots=arch_data.get("hot_spots", []),
                 recommendations=arch_data.get("recommendations", []),
+                external_dependencies=arch_data.get("external_dependencies", []),
+                strengths=arch_data.get("strengths", []),
+                weaknesses=arch_data.get("weaknesses", []),
+                risk_assessment=arch_data.get("risk_assessment", ""),
             )
 
             return self.create_result(
@@ -79,16 +129,24 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     async def _analyze_architecture(self, context: DocGeneratorContext, project_language: str) -> dict[str, Any]:
         """分析架构"""
         arch_data = {
+            "architecture_style": "",
+            "architecture_diagram": "",
             "c4_context": "",
             "c4_container": "",
             "c4_component": "",
             "dependency_graph": "",
+            "package_diagram": "",
+            "data_flow_diagram": "",
             "layers": [],
             "metrics": [],
             "quality_metrics": {},
             "circular_dependencies": [],
             "hot_spots": [],
             "recommendations": [],
+            "external_dependencies": [],
+            "strengths": [],
+            "weaknesses": [],
+            "risk_assessment": "",
             "summary": {},
         }
 
@@ -126,16 +184,208 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         except Exception:
             pass
 
+        arch_data["architecture_style"] = self._detect_architecture_style(context)
+        arch_data["architecture_diagram"] = self._generate_architecture_diagram(context)
         arch_data["c4_context"] = self._generate_c4_context(context)
         arch_data["c4_container"] = self._generate_c4_container(context)
         arch_data["c4_component"] = self._generate_c4_component(context)
         arch_data["dependency_graph"] = self._generate_dependency_graph(context)
+        arch_data["package_diagram"] = self._generate_package_diagram(context)
+        arch_data["data_flow_diagram"] = self._generate_data_flow_diagram(context)
         arch_data["layers"] = self._analyze_layers(context, project_language)
         arch_data["quality_metrics"] = self._calculate_quality_metrics(context)
         arch_data["circular_dependencies"] = self._detect_circular_dependencies(context)
         arch_data["hot_spots"] = self._detect_hot_spots(context)
+        arch_data["external_dependencies"] = self._analyze_external_dependencies(context)
 
         return arch_data
+
+    def _detect_architecture_style(self, context: DocGeneratorContext) -> str:
+        """检测架构风格"""
+        if not context.parse_result or not context.parse_result.modules:
+            return "单体架构"
+        
+        modules = context.parse_result.modules
+        module_names = [m.name.lower() if hasattr(m, "name") else str(m).lower() for m in modules]
+        
+        service_count = sum(1 for name in module_names if "service" in name)
+        controller_count = sum(1 for name in module_names if any(kw in name for kw in ["controller", "api", "router", "handler"]))
+        repo_count = sum(1 for name in module_names if any(kw in name for kw in ["repository", "dao", "store"]))
+        event_count = sum(1 for name in module_names if any(kw in name for kw in ["event", "queue", "message", "kafka", "rabbit"]))
+        command_count = sum(1 for name in module_names if "command" in name)
+        query_count = sum(1 for name in module_names if "query" in name)
+        adapter_count = sum(1 for name in module_names if "adapter" in name)
+        
+        if event_count > 2:
+            return "事件驱动架构"
+        if command_count > 0 and query_count > 0:
+            return "CQRS 架构"
+        if adapter_count > 1:
+            return "六边形架构"
+        if service_count > 5 and controller_count > 2:
+            return "微服务架构"
+        if controller_count > 0 and service_count > 0 and repo_count > 0:
+            return "分层架构"
+        
+        return "单体架构"
+
+    def _generate_architecture_diagram(self, context: DocGeneratorContext) -> str:
+        """生成智能架构图"""
+        if not context.parse_result:
+            return ""
+        
+        return self.arch_diagram_gen.generate_from_parse_result(
+            context.parse_result,
+            context.project_name,
+            f"{context.project_name} 系统架构"
+        )
+
+    def _generate_package_diagram(self, context: DocGeneratorContext) -> str:
+        """生成包依赖图"""
+        if not context.parse_result:
+            return ""
+        
+        return self.package_diagram_gen.generate_from_parse_result(
+            context.parse_result,
+            context.project_name,
+            f"{context.project_name} 包依赖关系"
+        )
+
+    def _generate_data_flow_diagram(self, context: DocGeneratorContext) -> str:
+        """生成数据流图"""
+        if not context.parse_result or not context.parse_result.modules:
+            return ""
+        
+        modules = context.parse_result.modules[:15]
+        
+        nodes = []
+        flows = []
+        
+        nodes.append({
+            "id": "client",
+            "name": "Client",
+            "type": "external_entity",
+            "description": "外部客户端",
+        })
+        
+        for module in modules:
+            module_name = module.name if hasattr(module, "name") else str(module)
+            name_lower = module_name.lower()
+            
+            if any(kw in name_lower for kw in ["api", "controller", "router", "handler", "endpoint"]):
+                nodes.append({
+                    "id": self._sanitize_id(module_name),
+                    "name": module_name.split(".")[-1],
+                    "type": "process",
+                    "description": "API 入口",
+                })
+                flows.append({
+                    "source": "client",
+                    "target": self._sanitize_id(module_name),
+                    "data_name": "HTTP Request",
+                })
+            elif any(kw in name_lower for kw in ["service", "manager", "processor"]):
+                nodes.append({
+                    "id": self._sanitize_id(module_name),
+                    "name": module_name.split(".")[-1],
+                    "type": "process",
+                    "description": "业务处理",
+                })
+            elif any(kw in name_lower for kw in ["repository", "dao", "store", "db", "database"]):
+                nodes.append({
+                    "id": self._sanitize_id(module_name),
+                    "name": module_name.split(".")[-1],
+                    "type": "data_store",
+                    "description": "数据存储",
+                })
+        
+        api_nodes = [n for n in nodes if "API" in n.get("description", "")]
+        service_nodes = [n for n in nodes if "业务" in n.get("description", "")]
+        data_nodes = [n for n in nodes if n.get("type") == "data_store"]
+        
+        for api in api_nodes:
+            for svc in service_nodes:
+                flows.append({
+                    "source": api["id"],
+                    "target": svc["id"],
+                    "data_name": "请求",
+                })
+        
+        for svc in service_nodes:
+            for data in data_nodes:
+                flows.append({
+                    "source": svc["id"],
+                    "target": data["id"],
+                    "data_name": "数据操作",
+                })
+        
+        data = {"nodes": nodes[:12], "flows": flows[:20]}
+        
+        lines = ["graph LR"]
+        for node in data["nodes"]:
+            node_id = node.get("id", "")
+            name = node.get("name", "")
+            node_type = node.get("type", "process")
+            
+            if node_type == "external_entity":
+                lines.append(f"    {node_id}[\"{name}\"]")
+                lines.append(f"    style {node_id} fill:#e1f5fe,stroke:#01579b")
+            elif node_type == "process":
+                lines.append(f"    {node_id}({name})")
+                lines.append(f"    style {node_id} fill:#fff3e0,stroke:#e65100")
+            elif node_type == "data_store":
+                lines.append(f"    {node_id}[[\"{name}\"]]")
+                lines.append(f"    style {node_id} fill:#f3e5f5,stroke:#4a148c")
+        
+        for flow in data["flows"]:
+            source = flow.get("source", "")
+            target = flow.get("target", "")
+            data_name = flow.get("data_name", "")
+            if source and target:
+                lines.append(f"    {source} -->|\"{data_name}\"| {target}")
+        
+        return "\n".join(lines)
+
+    def _sanitize_id(self, name: str) -> str:
+        """将名称转换为有效的 ID"""
+        return name.replace(".", "_").replace("-", "_").replace(" ", "_")[:30]
+
+    def _analyze_external_dependencies(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
+        """分析外部依赖"""
+        if not context.parse_result or not context.parse_result.modules:
+            return []
+        
+        dep_counts: dict[str, dict] = defaultdict(lambda: {"count": 0, "category": "other"})
+        
+        for module in context.parse_result.modules:
+            if hasattr(module, "imports") and module.imports:
+                for imp in module.imports:
+                    imp_module = imp.module if hasattr(imp, "module") else str(imp)
+                    base = imp_module.split(".")[0]
+                    
+                    if base in self.STANDARD_LIBS:
+                        continue
+                    
+                    if base not in dep_counts:
+                        category = "other"
+                        for cat, libs in self.EXTERNAL_CATEGORIES.items():
+                            if base in libs:
+                                category = cat
+                                break
+                        dep_counts[base]["category"] = category
+                    
+                    dep_counts[base]["count"] += 1
+        
+        sorted_deps = sorted(dep_counts.items(), key=lambda x: x[1]["count"], reverse=True)[:15]
+        
+        return [
+            {
+                "name": name,
+                "count": info["count"],
+                "category": info["category"],
+            }
+            for name, info in sorted_deps
+        ]
 
     def _generate_c4_context(self, context: DocGeneratorContext) -> str:
         """生成 C4 上下文图"""
