@@ -6,6 +6,7 @@
 import asyncio
 import hashlib
 import json
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -15,6 +16,7 @@ from typing import Any, Optional
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
+from pywiki.monitor.logger import logger
 
 
 @dataclass
@@ -92,21 +94,30 @@ class VectorStore:
         return self.persist_dir / "records.json"
 
     def _initialize_store(self) -> None:
+        start_time = time.time()
+        logger.info("向量存储初始化开始")
         index_path = self._get_index_path()
         docstore_path = self._get_docstore_path()
 
         if index_path.exists() and docstore_path.exists():
             try:
+                logger.info(f"加载已有索引: index_path={index_path}")
                 self._vectorstore = FAISS.load_local(
                     folder_path=str(self.persist_dir),
                     embeddings=self._embeddings,
                     allow_dangerous_deserialization=True,
                 )
                 self._load_records()
-            except Exception:
+                duration_ms = (time.time() - start_time) * 1000
+                logger.info(f"向量存储初始化完成(加载已有): 耗时={duration_ms:.0f}ms, 文档数={len(self._doc_records)}")
+            except Exception as e:
+                duration_ms = (time.time() - start_time) * 1000
+                logger.warning(f"加载索引失败，创建新索引: 耗时={duration_ms:.0f}ms, 错误={str(e)}")
                 self._create_empty_store()
         else:
             self._create_empty_store()
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"向量存储初始化完成(新建): 耗时={duration_ms:.0f}ms")
 
     def _validate_index_integrity(self) -> bool:
         """验证索引完整性"""
@@ -165,6 +176,7 @@ class VectorStore:
                 pass
 
     def _save_store(self) -> None:
+        start_time = time.time()
         if self._vectorstore:
             self._vectorstore.save_local(str(self.persist_dir))
 
@@ -189,6 +201,9 @@ class VectorStore:
             self._stats.total_documents = len(self._doc_records)
             self._stats.total_chunks = len(self._doc_ids)
             self._stats.last_updated = datetime.now()
+            
+            duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"向量存储保存完成: 耗时={duration_ms:.0f}ms, 文档数={len(self._doc_records)}, 分块数={len(self._doc_ids)}")
 
     def _compute_hash(self, content: str) -> str:
         """计算内容哈希"""
@@ -240,6 +255,10 @@ class VectorStore:
         Returns:
             文档ID
         """
+        start_time = time.time()
+        content_length = len(content) if content else 0
+        logger.debug(f"添加文档开始: content_length={content_length}, file_path={file_path}")
+        
         content_hash = self._compute_hash(content)
 
         if skip_if_exists and content_hash in self._content_hashes:
@@ -248,12 +267,15 @@ class VectorStore:
                 record = self._doc_records[existing_doc_id]
                 record.updated_at = datetime.now()
                 self._save_store()
+                duration_ms = (time.time() - start_time) * 1000
+                logger.debug(f"文档已存在，跳过: doc_id={existing_doc_id}, 耗时={duration_ms:.0f}ms")
                 return existing_doc_id
 
         if doc_id is None:
             doc_id = hashlib.md5(content.encode()).hexdigest()
 
         chunks = self._chunk_content(content)
+        logger.debug(f"文档分块: doc_id={doc_id}, chunks={len(chunks)}")
         documents = []
 
         for i, chunk in enumerate(chunks):
@@ -285,6 +307,9 @@ class VectorStore:
         )
 
         self._save_store()
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"文档添加完成: doc_id={doc_id}, chunks={len(chunks)}, 耗时={duration_ms:.0f}ms")
 
         return doc_id
 
@@ -303,8 +328,10 @@ class VectorStore:
         Returns:
             文档ID列表
         """
+        start_time = time.time()
+        logger.info(f"批量添加文档开始: 文档数={len(documents)}")
         ids = []
-        for doc in documents:
+        for i, doc in enumerate(documents):
             doc_id = self.add_document(
                 content=doc.get("content", ""),
                 metadata=doc.get("metadata"),
@@ -313,7 +340,11 @@ class VectorStore:
                 skip_if_exists=skip_if_exists,
             )
             ids.append(doc_id)
+            if (i + 1) % 10 == 0:
+                logger.debug(f"批量添加进度: 已处理 {i + 1}/{len(documents)}")
 
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"批量添加文档完成: 总数={len(ids)}, 耗时={duration_ms:.0f}ms")
         return ids
 
     async def add_document_async(
@@ -363,7 +394,11 @@ class VectorStore:
         Returns:
             搜索结果列表
         """
+        start_time = time.time()
+        logger.debug(f"向量搜索开始: query_length={len(query) if query else 0}, k={k}")
+        
         if self._vectorstore is None:
+            logger.warning("向量搜索失败: 向量存储未初始化")
             return []
 
         results = self._vectorstore.similarity_search(query, k=k * 2)
@@ -388,6 +423,8 @@ class VectorStore:
             if len(filtered_results) >= k:
                 break
 
+        duration_ms = (time.time() - start_time) * 1000
+        logger.debug(f"向量搜索完成: 结果数={len(filtered_results)}, 耗时={duration_ms:.0f}ms")
         return filtered_results
 
     def search_with_score(
@@ -407,7 +444,11 @@ class VectorStore:
         Returns:
             list of (result_dict, score)
         """
+        start_time = time.time()
+        logger.debug(f"带分数向量搜索开始: query_length={len(query) if query else 0}, k={k}")
+        
         if self._vectorstore is None:
+            logger.warning("带分数向量搜索失败: 向量存储未初始化")
             return []
 
         results = self._vectorstore.similarity_search_with_score(query, k=k * 2)
@@ -435,6 +476,8 @@ class VectorStore:
             if len(filtered_results) >= k:
                 break
 
+        duration_ms = (time.time() - start_time) * 1000
+        logger.debug(f"带分数向量搜索完成: 结果数={len(filtered_results)}, 耗时={duration_ms:.0f}ms")
         return filtered_results
 
     def search_by_file(self, file_path: str, k: int = 10) -> list[dict]:

@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_serializer
 
 
 class LLMProvider(str, Enum):
@@ -36,6 +36,10 @@ class LLMConfig(BaseModel):
     max_retries: int = Field(default=5, description="最大重试次数")
     temperature: float = Field(default=0.7, description="生成温度")
     max_tokens: int = Field(default=4096, description="最大 token 数")
+
+    @field_serializer('api_key')
+    def _serialize_api_key(self, value: SecretStr) -> str:
+        return value.get_secret_value()
 
 
 class WikiConfig(BaseModel):

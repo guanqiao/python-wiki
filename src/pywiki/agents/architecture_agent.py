@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pywiki.agents.base import BaseAgent, AgentContext, AgentResult, AgentPriority
+from pywiki.analysis.package_analyzer import PackageAnalyzer
 from pywiki.parsers.factory import ParserFactory
 
 
@@ -42,6 +43,7 @@ class ArchitectureAgent(BaseAgent):
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         self._parser_factory = ParserFactory()
+        self._package_analyzer = PackageAnalyzer(parser_factory=self._parser_factory)
         self._module_cache: dict[str, Any] = {}
     
     def get_system_prompt(self) -> str:
@@ -120,6 +122,54 @@ class ArchitectureAgent(BaseAgent):
         if dependency_result.data:
             dependencies = dependency_result.data
         
+        package_analysis = {}
+        if context.project_path:
+            subpackages = self._package_analyzer.detect_subpackages(context.project_path)
+            package_deps = self._package_analyzer.analyze_package_dependencies(subpackages)
+            circular_deps = self._package_analyzer.detect_circular_dependencies(package_deps)
+            layers = self._package_analyzer.detect_layered_architecture(subpackages)
+            violations = self._package_analyzer.analyze_package_boundaries(subpackages, layers)
+            package_metrics = self._package_analyzer.calculate_package_metrics(subpackages)
+            
+            package_analysis = {
+                "subpackages_count": len(subpackages),
+                "layers": [
+                    {"name": layer.name, "packages": layer.packages}
+                    for layer in layers
+                ],
+                "circular_dependencies": circular_deps,
+                "layer_violations": violations,
+                "package_metrics_summary": {
+                    "avg_stability": sum(m.stability for m in package_metrics) / len(package_metrics) if package_metrics else 0,
+                    "avg_cohesion": sum(m.cohesion for m in package_metrics) / len(package_metrics) if package_metrics else 0,
+                },
+            }
+            
+            if circular_deps:
+                insights.append(ArchitectureInsight(
+                    category="architecture",
+                    title="包级别循环依赖",
+                    description=f"检测到 {len(circular_deps)} 个包级别的循环依赖",
+                    severity="high",
+                    suggestions=[
+                        "重构包结构以消除循环依赖",
+                        "引入接口层解耦",
+                        "考虑依赖倒置原则",
+                    ],
+                ))
+            
+            if violations:
+                insights.append(ArchitectureInsight(
+                    category="architecture",
+                    title="架构层边界违规",
+                    description=f"检测到 {len(violations)} 个架构层边界违规",
+                    severity="medium",
+                    suggestions=[
+                        "检查依赖方向是否符合分层架构",
+                        "重构违规的依赖关系",
+                    ],
+                ))
+        
         overall_score = sum(m["score"] for m in metrics.values()) / max(len(metrics), 1)
         
         if self.llm_client:
@@ -135,6 +185,7 @@ class ArchitectureAgent(BaseAgent):
                 "dependencies": dependencies,
                 "insights": insights,
                 "recommendations": self._generate_recommendations(insights, metrics),
+                "package_analysis": package_analysis,
             },
             message=f"架构健康度评分: {overall_score:.2f}/1.0",
             confidence=0.85,

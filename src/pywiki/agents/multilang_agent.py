@@ -9,6 +9,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pywiki.agents.base import BaseAgent, AgentContext, AgentResult, AgentPriority
+from pywiki.analysis.package_analyzer import (
+    PackageAnalyzer,
+    SubPackageInfo,
+    PackageDependency,
+    ArchitectureLayer,
+    PackageMetric,
+)
 from pywiki.parsers.factory import ParserFactory
 
 
@@ -44,6 +51,7 @@ class MultilangAgent(BaseAgent):
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         self._parser_factory = ParserFactory()
+        self._package_analyzer = PackageAnalyzer(parser_factory=self._parser_factory)
         self._language_extensions = {
             "python": [".py", ".pyi"],
             "typescript": [".ts", ".tsx", ".js", ".jsx", ".mjs"],
@@ -52,13 +60,15 @@ class MultilangAgent(BaseAgent):
     
     def get_system_prompt(self) -> str:
         return """# 角色定义
-你是一位多语言代码分析专家，精通Python、TypeScript/JavaScript、Java等主流编程语言，擅长分析跨语言项目和API契约。
+你是一位多语言代码分析专家，精通Python、TypeScript/JavaScript、Java等主流编程语言，擅长分析跨语言项目、多子包架构和API契约。
 
 # 核心能力
 1. **多语言分析**: 统一分析不同编程语言的代码结构
 2. **跨语言调用识别**: 发现前后端、服务间的API调用关系
 3. **API契约发现**: 识别REST、gRPC、GraphQL等API定义
 4. **统一视图生成**: 提供跨语言的统一项目视图
+5. **多子包分析**: 分析大型项目的子包结构、依赖关系和架构分层
+6. **包边界检测**: 识别违反架构分层原则的调用
 
 # 支持的语言
 - **Python**: FastAPI、Flask、Django等框架
@@ -77,13 +87,41 @@ class MultilangAgent(BaseAgent):
 - gRPC: .proto文件定义
 - GraphQL: Schema定义、Resolver实现
 
+## 多子包分析
+- 自动检测项目中的子包/模块结构
+- 分析每个子包的职责和边界
+- 检测子包间的依赖关系和耦合度
+- 识别分层架构模式（如 Controller-Service-Repository）
+- 发现违反包边界原则的调用
+
+## 架构层识别
+- **表示层(presentation)**: UI、Controller、API端点
+- **业务层(business)**: Service、UseCase、Domain逻辑
+- **数据层(data)**: Repository、DAO、Model、Entity
+- **基础设施层(infrastructure)**: Config、Util、Common
+
+# 分析类型
+- `full`: 完整分析
+- `structure`: 项目结构分析（含子包）
+- `cross_calls`: 跨语言/跨包调用分析
+- `api_contracts`: API契约分析
+- `unified_view`: 统一视图（含层次化）
+- `subpackages`: 子包结构分析
+- `package_deps`: 包依赖分析
+- `package_boundaries`: 包边界分析
+- `package_metrics`: 包级别指标计算
+- `architecture_layers`: 架构分层分析
+
 # 输出规范
 - 使用JSON格式输出结构化结果
 - 跨语言调用包含：调用方语言、调用位置、被调用方语言、被调用位置、调用类型
 - API契约包含：类型、语言、位置、框架
 - 统一实体包含：名称、类型、语言、位置、属性
+- 子包信息包含：名称、路径、语言、文件数、类数、函数数、导出符号、架构层提示
+- 包依赖包含：源包、目标包、依赖类型、依赖强度
+- 包指标包含：稳定性、抽象度、距离、耦合度、内聚性
 
-请提供准确的多语言分析结果。"""
+请提供准确的多语言和多子包分析结果。"""
     
     async def execute(self, context: AgentContext) -> AgentResult:
         """执行多语言分析"""
@@ -102,6 +140,16 @@ class MultilangAgent(BaseAgent):
                 result = await self._api_contract_analysis(context)
             elif analysis_type == "unified_view":
                 result = await self._unified_view_analysis(context)
+            elif analysis_type == "subpackages":
+                result = await self._analyze_package_structure(context)
+            elif analysis_type == "package_deps":
+                result = await self._analyze_package_dependencies(context)
+            elif analysis_type == "package_boundaries":
+                result = await self._analyze_package_boundaries(context)
+            elif analysis_type == "package_metrics":
+                result = await self._calculate_package_metrics(context)
+            elif analysis_type == "architecture_layers":
+                result = await self._analyze_package_boundaries(context)
             else:
                 result = AgentResult.error_result(f"未知分析类型: {analysis_type}")
             
@@ -149,7 +197,7 @@ class MultilangAgent(BaseAgent):
             files = [f for f in files if "__pycache__" not in str(f) and "node_modules" not in str(f)]
             
             total_lines = 0
-            for file_path in files[:100]:
+            for file_path in files[:500]:
                 try:
                     content = file_path.read_text(encoding="utf-8")
                     total_lines += len(content.splitlines())
@@ -167,13 +215,32 @@ class MultilangAgent(BaseAgent):
             key=lambda x: x[1]["file_count"]
         )[0]
         
+        subpackages = self._detect_subpackages(context.project_path)
+        
+        package_tree = self._build_package_tree(subpackages) if subpackages else {}
+        
+        layer_distribution = self._analyze_layer_distribution(subpackages) if subpackages else {}
+        
         return AgentResult.success_result(
             data={
                 "languages": language_stats,
                 "dominant_language": dominant_language,
                 "is_multilang": sum(1 for s in language_stats.values() if s["file_count"] > 0) > 1,
+                "subpackages": [
+                    {
+                        "name": sp.name,
+                        "path": sp.path,
+                        "language": sp.language,
+                        "file_count": sp.file_count,
+                        "layer_hint": sp.layer_hint,
+                    }
+                    for sp in subpackages[:50]
+                ],
+                "total_subpackages": len(subpackages),
+                "package_tree": package_tree,
+                "layer_distribution": layer_distribution,
             },
-            message=f"项目主要使用 {dominant_language}",
+            message=f"项目主要使用 {dominant_language}，包含 {len(subpackages)} 个子包",
             confidence=0.9,
         )
     
@@ -199,6 +266,28 @@ class MultilangAgent(BaseAgent):
                         confidence=0.8,
                     ))
         
+        subpackages = self._detect_subpackages(context.project_path)
+        package_names = {sp.name for sp in subpackages}
+        
+        package_cross_calls = []
+        
+        for sp in subpackages:
+            for imp_module in sp.imports_from:
+                matched_package = self._find_matching_package(imp_module, package_names)
+                
+                if matched_package and matched_package != sp.name:
+                    matched_sp = next((s for s in subpackages if s.name == matched_package), None)
+                    
+                    if matched_sp and matched_sp.language != sp.language:
+                        package_cross_calls.append({
+                            "caller_package": sp.name,
+                            "caller_language": sp.language,
+                            "callee_package": matched_package,
+                            "callee_language": matched_sp.language,
+                            "import_module": imp_module,
+                            "call_type": "cross_package_import",
+                        })
+        
         return AgentResult.success_result(
             data={
                 "cross_calls": [
@@ -213,8 +302,10 @@ class MultilangAgent(BaseAgent):
                     for c in cross_calls
                 ],
                 "total_calls": len(cross_calls),
+                "package_cross_calls": package_cross_calls,
+                "total_package_cross_calls": len(package_cross_calls),
             },
-            message=f"发现 {len(cross_calls)} 个跨语言调用",
+            message=f"发现 {len(cross_calls)} 个跨语言调用，{len(package_cross_calls)} 个跨包调用",
             confidence=0.75,
         )
     
@@ -291,6 +382,11 @@ class MultilangAgent(BaseAgent):
                         except Exception:
                             pass
         
+        subpackages = self._detect_subpackages(context.project_path)
+        layers = self._detect_layered_architecture(subpackages)
+        
+        hierarchical_view = self._build_hierarchical_view(subpackages, entities)
+        
         return AgentResult.success_result(
             data={
                 "entities": [
@@ -301,15 +397,68 @@ class MultilangAgent(BaseAgent):
                         "location": e.location,
                         "properties": e.properties,
                     }
-                    for e in entities[:100]
+                    for e in entities[:200]
                 ],
                 "total_entities": len(entities),
                 "by_language": self._count_by_language(entities),
                 "by_type": self._count_by_type(entities),
+                "hierarchical_view": hierarchical_view,
+                "layers": [
+                    {
+                        "name": layer.name,
+                        "packages": layer.packages,
+                        "description": layer.description,
+                    }
+                    for layer in layers
+                ],
+                "subpackages_summary": [
+                    {
+                        "name": sp.name,
+                        "language": sp.language,
+                        "layer_hint": sp.layer_hint,
+                        "class_count": sp.class_count,
+                        "function_count": sp.function_count,
+                    }
+                    for sp in subpackages[:30]
+                ],
             },
-            message=f"统一视图包含 {len(entities)} 个实体",
+            message=f"统一视图包含 {len(entities)} 个实体，{len(subpackages)} 个子包，{len(layers)} 个架构层",
             confidence=0.85,
         )
+    
+    def _build_hierarchical_view(
+        self, 
+        subpackages: list[SubPackageInfo], 
+        entities: list[UnifiedEntity]
+    ) -> dict:
+        """构建层次化视图"""
+        view = {
+            "layers": {},
+            "packages": {},
+        }
+        
+        for sp in subpackages:
+            if sp.layer_hint:
+                if sp.layer_hint not in view["layers"]:
+                    view["layers"][sp.layer_hint] = {
+                        "packages": [],
+                        "total_classes": 0,
+                        "total_functions": 0,
+                    }
+                view["layers"][sp.layer_hint]["packages"].append(sp.name)
+                view["layers"][sp.layer_hint]["total_classes"] += sp.class_count
+                view["layers"][sp.layer_hint]["total_functions"] += sp.function_count
+            
+            view["packages"][sp.name] = {
+                "language": sp.language,
+                "layer": sp.layer_hint or "unknown",
+                "file_count": sp.file_count,
+                "class_count": sp.class_count,
+                "function_count": sp.function_count,
+                "exports": sp.exports[:10],
+            }
+        
+        return view
     
     async def _generate_unified_model(self, context: AgentContext) -> list[dict]:
         """生成统一模型"""
@@ -495,3 +644,142 @@ class MultilangAgent(BaseAgent):
         for entity in entities:
             counts[entity.entity_type] = counts.get(entity.entity_type, 0) + 1
         return counts
+    
+    def _detect_subpackages(self, project_path: Path) -> list[SubPackageInfo]:
+        """检测项目中的子包"""
+        return self._package_analyzer.detect_subpackages(project_path)
+    
+    async def _analyze_package_structure(self, context: AgentContext) -> AgentResult:
+        """分析包结构"""
+        if not context.project_path:
+            return AgentResult.error_result("未指定项目路径")
+        
+        subpackages = self._detect_subpackages(context.project_path)
+        
+        if not subpackages:
+            return AgentResult.success_result(
+                data={"subpackages": [], "total": 0},
+                message="未检测到子包结构",
+                confidence=0.9,
+            )
+        
+        package_tree = self._package_analyzer.build_package_tree(subpackages)
+        layer_distribution = self._package_analyzer.analyze_layer_distribution(subpackages)
+        
+        return AgentResult.success_result(
+            data={
+                "subpackages": [
+                    {
+                        "name": sp.name,
+                        "path": sp.path,
+                        "language": sp.language,
+                        "file_count": sp.file_count,
+                        "class_count": sp.class_count,
+                        "function_count": sp.function_count,
+                        "exports": sp.exports[:20],
+                        "imports_from": sp.imports_from[:10],
+                        "layer_hint": sp.layer_hint,
+                    }
+                    for sp in subpackages
+                ],
+                "total": len(subpackages),
+                "package_tree": package_tree,
+                "layer_distribution": layer_distribution,
+            },
+            message=f"检测到 {len(subpackages)} 个子包",
+            confidence=0.85,
+        )
+    
+    async def _analyze_package_dependencies(self, context: AgentContext) -> AgentResult:
+        """分析包间依赖"""
+        if not context.project_path:
+            return AgentResult.error_result("未指定项目路径")
+        
+        subpackages = self._detect_subpackages(context.project_path)
+        dependencies = self._package_analyzer.analyze_package_dependencies(subpackages)
+        circular_deps = self._package_analyzer.detect_circular_dependencies(dependencies)
+        
+        dependency_matrix = {}
+        for dep in dependencies:
+            if dep.source_package not in dependency_matrix:
+                dependency_matrix[dep.source_package] = []
+            dependency_matrix[dep.source_package].append(f"{dep.source_package}->{dep.target_package}")
+        
+        return AgentResult.success_result(
+            data={
+                "dependencies": [
+                    {
+                        "source": d.source_package,
+                        "target": d.target_package,
+                        "type": d.dependency_type,
+                        "strength": d.strength,
+                        "location_count": len(d.locations),
+                    }
+                    for d in dependencies
+                ],
+                "dependency_matrix": dependency_matrix,
+                "circular_dependencies": circular_deps,
+                "total_dependencies": len(dependencies),
+            },
+            message=f"发现 {len(dependencies)} 个包间依赖，{len(circular_deps)} 个循环依赖",
+            confidence=0.8,
+        )
+    
+    async def _analyze_package_boundaries(self, context: AgentContext) -> AgentResult:
+        """分析包边界"""
+        if not context.project_path:
+            return AgentResult.error_result("未指定项目路径")
+        
+        subpackages = self._detect_subpackages(context.project_path)
+        layers = self._package_analyzer.detect_layered_architecture(subpackages)
+        violations = self._package_analyzer.analyze_package_boundaries(subpackages, layers)
+        
+        return AgentResult.success_result(
+            data={
+                "layers": [
+                    {
+                        "name": layer.name,
+                        "packages": layer.packages,
+                        "description": layer.description,
+                        "allowed_dependencies": layer.allowed_dependencies,
+                    }
+                    for layer in layers
+                ],
+                "violations": violations,
+                "total_violations": len(violations),
+            },
+            message=f"检测到 {len(layers)} 个架构层，{len(violations)} 个边界违规",
+            confidence=0.75,
+        )
+    
+    async def _calculate_package_metrics(self, context: AgentContext) -> AgentResult:
+        """计算包级别指标"""
+        if not context.project_path:
+            return AgentResult.error_result("未指定项目路径")
+        
+        subpackages = self._detect_subpackages(context.project_path)
+        metrics = self._package_analyzer.calculate_package_metrics(subpackages)
+        
+        return AgentResult.success_result(
+            data={
+                "metrics": [
+                    {
+                        "package": m.package_name,
+                        "stability": m.stability,
+                        "abstractness": m.abstractness,
+                        "distance": m.distance,
+                        "coupling": m.coupling,
+                        "cohesion": m.cohesion,
+                    }
+                    for m in metrics
+                ],
+                "summary": {
+                    "avg_stability": sum(m.stability for m in metrics) / len(metrics) if metrics else 0,
+                    "avg_cohesion": sum(m.cohesion for m in metrics) / len(metrics) if metrics else 0,
+                    "high_coupling_packages": [m.package_name for m in metrics if m.coupling > 0.7],
+                    "unstable_packages": [m.package_name for m in metrics if m.stability < 0.3],
+                },
+            },
+            message=f"计算了 {len(metrics)} 个包的指标",
+            confidence=0.8,
+        )

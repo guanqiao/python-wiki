@@ -253,6 +253,7 @@ Please respond in English."""
                 output_dir=output_path,
                 metadata={"llm_client": llm_client},
             )
+            doc_context.project_language = doc_context.detect_project_language()
 
             doc_result = await generator.generate(doc_context)
 
@@ -401,6 +402,7 @@ Please respond in English."""
             output_dir=output_path,
             metadata={"llm_client": self.llm_client},
         )
+        doc_context.project_language = doc_context.detect_project_language()
 
         try:
             doc_result = await generator.generate(doc_context)

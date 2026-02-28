@@ -90,17 +90,20 @@ class LLMClient(BaseLLMClient):
         **kwargs: Any
     ) -> str:
         start_time = time.time()
-        logger.debug(f"LLM 同步调用: model={self.model}, prompt_length={len(prompt)}")
+        token_count = self.count_tokens(prompt)
+        logger.info(f"LLM 同步调用开始: model={self.model}, prompt_length={len(prompt)}, tokens={token_count}")
         
         try:
             messages = []
             if system_prompt:
                 messages.append(("system", system_prompt))
+                logger.debug(f"LLM 同步调用: 使用系统提示, length={len(system_prompt)}")
             messages.append(("human", prompt))
 
             response = self._langchain_llm.invoke(messages)
             duration_ms = (time.time() - start_time) * 1000
-            logger.debug(f"LLM 同步响应: 成功, 耗时={duration_ms:.0f}ms, response_length={len(response.content)}")
+            response_tokens = self.count_tokens(response.content) if response.content else 0
+            logger.info(f"LLM 同步调用完成: 耗时={duration_ms:.0f}ms, response_length={len(response.content)}, response_tokens={response_tokens}")
             return response.content
         except Exception as e:
             duration_ms = (time.time() - start_time) * 1000
@@ -119,17 +122,20 @@ class LLMClient(BaseLLMClient):
         **kwargs: Any
     ) -> str:
         start_time = time.time()
-        logger.debug(f"LLM 异步调用: model={self.model}, prompt_length={len(prompt)}")
+        token_count = self.count_tokens(prompt)
+        logger.info(f"LLM 异步调用开始: model={self.model}, prompt_length={len(prompt)}, tokens={token_count}")
         
         try:
             messages = []
             if system_prompt:
                 messages.append(("system", system_prompt))
+                logger.debug(f"LLM 异步调用: 使用系统提示, length={len(system_prompt)}")
             messages.append(("human", prompt))
 
             response = await self._langchain_llm.ainvoke(messages)
             duration_ms = (time.time() - start_time) * 1000
-            logger.debug(f"LLM 异步响应: 成功, 耗时={duration_ms:.0f}ms, response_length={len(response.content)}")
+            response_tokens = self.count_tokens(response.content) if response.content else 0
+            logger.info(f"LLM 异步调用完成: 耗时={duration_ms:.0f}ms, response_length={len(response.content)}, response_tokens={response_tokens}")
             return response.content
         except Exception as e:
             duration_ms = (time.time() - start_time) * 1000
@@ -142,18 +148,25 @@ class LLMClient(BaseLLMClient):
         system_prompt: Optional[str] = None,
         **kwargs: Any
     ) -> Iterator[str]:
-        logger.debug(f"LLM 流式调用: model={self.model}, prompt_length={len(prompt)}")
+        start_time = time.time()
+        token_count = self.count_tokens(prompt)
+        logger.info(f"LLM 流式调用开始: model={self.model}, prompt_length={len(prompt)}, tokens={token_count}")
+        chunk_count = 0
         try:
             messages = []
             if system_prompt:
                 messages.append(("system", system_prompt))
+                logger.debug(f"LLM 流式调用: 使用系统提示, length={len(system_prompt)}")
             messages.append(("human", prompt))
 
             for chunk in self._langchain_llm.stream(messages):
+                chunk_count += 1
                 yield chunk.content
-            logger.debug("LLM 流式响应完成")
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"LLM 流式调用完成: 耗时={duration_ms:.0f}ms, chunks={chunk_count}")
         except Exception as e:
-            logger.error(f"LLM 流式调用失败: {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(f"LLM 流式调用失败: 耗时={duration_ms:.0f}ms, chunks={chunk_count}, 错误={str(e)}")
             raise
 
     async def astream(
@@ -162,35 +175,45 @@ class LLMClient(BaseLLMClient):
         system_prompt: Optional[str] = None,
         **kwargs: Any
     ) -> AsyncIterator[str]:
-        logger.debug(f"LLM 异步流式调用: model={self.model}, prompt_length={len(prompt)}")
+        start_time = time.time()
+        token_count = self.count_tokens(prompt)
+        logger.info(f"LLM 异步流式调用开始: model={self.model}, prompt_length={len(prompt)}, tokens={token_count}")
+        chunk_count = 0
         try:
             messages = []
             if system_prompt:
                 messages.append(("system", system_prompt))
+                logger.debug(f"LLM 异步流式调用: 使用系统提示, length={len(system_prompt)}")
             messages.append(("human", prompt))
 
             async for chunk in self._langchain_llm.astream(messages):
+                chunk_count += 1
                 yield chunk.content
-            logger.debug("LLM 异步流式响应完成")
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"LLM 异步流式调用完成: 耗时={duration_ms:.0f}ms, chunks={chunk_count}")
         except Exception as e:
-            logger.error(f"LLM 异步流式调用失败: {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(f"LLM 异步流式调用失败: 耗时={duration_ms:.0f}ms, chunks={chunk_count}, 错误={str(e)}")
             raise
 
     def count_tokens(self, text: str) -> int:
         return self._langchain_llm.get_num_tokens(text)
 
     async def test_connection(self) -> bool:
-        logger.info(f"测试 LLM 连接: model={self.model}, endpoint={self.endpoint}")
+        start_time = time.time()
+        logger.info(f"测试 LLM 连接开始: model={self.model}, endpoint={self.endpoint}")
         try:
             response = await self.agenerate("Hello", max_tokens=10)
             success = bool(response)
+            duration_ms = (time.time() - start_time) * 1000
             if success:
-                logger.info("LLM 连接测试成功")
+                logger.info(f"LLM 连接测试成功: 耗时={duration_ms:.0f}ms")
             else:
-                logger.warning("LLM 连接测试失败: 响应为空")
+                logger.warning(f"LLM 连接测试失败: 耗时={duration_ms:.0f}ms, 响应为空")
             return success
         except Exception as e:
-            logger.error(f"LLM 连接测试失败: {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(f"LLM 连接测试失败: 耗时={duration_ms:.0f}ms, 错误={str(e)}")
             return False
 
     @classmethod

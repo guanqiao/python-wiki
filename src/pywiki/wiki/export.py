@@ -5,10 +5,12 @@ Wiki 文档导出功能
 """
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Optional, List
 
 import markdown
+from pywiki.monitor.logger import logger
 
 
 class WikiExporter:
@@ -73,13 +75,16 @@ class WikiExporter:
         Returns:
             输出目录路径
         """
+        start_time = time.time()
         if output_path is None:
             output_path = self.output_dir / "markdown"
 
         output_path.mkdir(parents=True, exist_ok=True)
 
         md_files = self._get_wiki_files()
-
+        logger.info(f"Markdown 导出开始: 文件数={len(md_files)}, 输出路径={output_path}")
+        
+        copied_count = 0
         for md_file in md_files:
             relative_path = md_file.relative_to(self.wiki_dir)
             dest_path = output_path / relative_path
@@ -88,7 +93,12 @@ class WikiExporter:
             with open(md_file, "r", encoding="utf-8") as src:
                 with open(dest_path, "w", encoding="utf-8") as dst:
                     dst.write(src.read())
+            copied_count += 1
+            if copied_count % 20 == 0:
+                logger.debug(f"Markdown 导出进度: 已处理 {copied_count}/{len(md_files)}")
 
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"Markdown 导出完成: 文件数={copied_count}, 耗时={duration_ms:.0f}ms")
         return output_path
 
     def _markdown_to_html(self, md_content: str, title: str = "Wiki", nav_html: str = "") -> str:
@@ -331,6 +341,7 @@ class WikiExporter:
         Returns:
             输出文件或目录路径
         """
+        start_time = time.time()
         if output_path is None:
             output_path = self.output_dir / "html"
 
@@ -339,6 +350,7 @@ class WikiExporter:
         nav_html = self._generate_nav_html(file_tree)
 
         if single_file:
+            logger.info(f"HTML 单文件导出开始")
             output_path = output_path.with_suffix(".html")
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -356,10 +368,15 @@ class WikiExporter:
 
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
+            
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"HTML 单文件导出完成: 文件数={len(md_files)}, 耗时={duration_ms:.0f}ms")
         else:
+            logger.info(f"HTML 多文件导出开始")
             output_path.mkdir(parents=True, exist_ok=True)
             md_files = self._get_wiki_files()
-
+            
+            converted_count = 0
             for md_file in md_files:
                 relative_path = md_file.relative_to(self.wiki_dir)
                 dest_path = output_path / relative_path.with_suffix(".html")
@@ -376,6 +393,12 @@ class WikiExporter:
 
                 with open(dest_path, "w", encoding="utf-8") as f:
                     f.write(html_content)
+                converted_count += 1
+                if converted_count % 20 == 0:
+                    logger.debug(f"HTML 导出进度: 已处理 {converted_count}/{len(md_files)}")
+
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"HTML 多文件导出完成: 文件数={converted_count}, 耗时={duration_ms:.0f}ms")
 
         return output_path
 
@@ -392,10 +415,13 @@ class WikiExporter:
         Returns:
             输出 PDF 文件路径
         """
+        start_time = time.time()
+        logger.info("PDF 导出开始")
+        
         try:
             from weasyprint import HTML
         except ImportError:
-            # 如果没有 weasyprint，使用替代方案
+            logger.warning("weasyprint 未安装，尝试使用 Playwright 导出 PDF")
             return await self._export_pdf_with_playwright(output_path)
 
         if output_path is None:
@@ -405,6 +431,7 @@ class WikiExporter:
 
         all_content = ""
         md_files = sorted(self._get_wiki_files())
+        logger.info(f"PDF 导出: 合并 {len(md_files)} 个文件")
 
         for md_file in md_files:
             relative_path = md_file.relative_to(self.wiki_dir)
@@ -416,6 +443,9 @@ class WikiExporter:
         html_content = self._markdown_to_html(all_content, title="Wiki Documentation", nav_html="")
 
         HTML(string=html_content).write_pdf(output_path)
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"PDF 导出完成: 文件数={len(md_files)}, 输出={output_path}, 耗时={duration_ms:.0f}ms")
 
         return output_path
 
@@ -460,19 +490,26 @@ class WikiExporter:
         Returns:
             格式到输出路径的映射字典
         """
+        start_time = time.time()
         if formats is None:
             formats = ["markdown", "html", "pdf"]
 
+        logger.info(f"批量导出开始: 格式={formats}")
         results = {}
 
         for fmt in formats:
+            fmt_start = time.time()
             if fmt == "markdown":
                 results[fmt] = await self.export_markdown()
             elif fmt == "html":
                 results[fmt] = await self.export_html(single_file=True)
             elif fmt == "pdf":
                 results[fmt] = await self.export_pdf()
+            fmt_duration = (time.time() - fmt_start) * 1000
+            logger.debug(f"格式 {fmt} 导出完成: 耗时={fmt_duration:.0f}ms")
 
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"批量导出完成: 格式数={len(results)}, 总耗时={duration_ms:.0f}ms")
         return results
 
 

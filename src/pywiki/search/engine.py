@@ -4,12 +4,15 @@
 """
 
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Union
+
+from pywiki.monitor.logger import logger
 
 
 class SearchMode(str, Enum):
@@ -153,10 +156,16 @@ class SearchEngine(BaseSearcher):
         Returns:
             索引的文档数量
         """
+        start_time = time.time()
+        logger.info(f"项目索引开始: project={project_name}, 文档数={len(documents)}")
+        
         indexed_count = await self._tiered_index.index_project(
             project_path, project_name, documents
         )
         await self._hybrid_search.index_documents(documents)
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"项目索引完成: project={project_name}, 索引数={indexed_count}, 耗时={duration_ms:.0f}ms")
         return indexed_count
 
     async def index_module(
@@ -166,10 +175,16 @@ class SearchEngine(BaseSearcher):
         documents: list[dict[str, Any]],
     ) -> int:
         """索引模块文档"""
+        start_time = time.time()
+        logger.info(f"模块索引开始: project={project_name}, module={module_name}, 文档数={len(documents)}")
+        
         indexed_count = await self._tiered_index.index_module(
             project_name, module_name, documents
         )
         await self._hybrid_search.index_documents(documents)
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"模块索引完成: project={project_name}, module={module_name}, 索引数={indexed_count}, 耗时={duration_ms:.0f}ms")
         return indexed_count
 
     async def index_file(
@@ -181,6 +196,9 @@ class SearchEngine(BaseSearcher):
         metadata: Optional[dict[str, Any]] = None,
     ) -> str:
         """索引单个文件"""
+        start_time = time.time()
+        logger.debug(f"文件索引开始: project={project_name}, module={module_name}, file={file_path}")
+        
         doc_id = await self._tiered_index.index_file(
             project_name, module_name, file_path, content, metadata
         )
@@ -189,6 +207,9 @@ class SearchEngine(BaseSearcher):
             "content": content,
             "metadata": metadata or {},
         }])
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.debug(f"文件索引完成: file={file_path}, doc_id={doc_id}, 耗时={duration_ms:.0f}ms")
         return doc_id
 
     async def remove_project(self, project_name: str) -> bool:
@@ -207,8 +228,6 @@ class SearchEngine(BaseSearcher):
         Returns:
             搜索结果列表
         """
-        import time
-
         start_time = time.time()
         self._stats["total_queries"] += 1
 
@@ -216,9 +235,12 @@ class SearchEngine(BaseSearcher):
         cached_result = self._cache.get(cache_key)
         if cached_result is not None:
             self._stats["cache_hits"] += 1
+            latency_ms = (time.time() - start_time) * 1000
+            logger.debug(f"搜索缓存命中: query={query.query[:50]}..., 耗时={latency_ms:.0f}ms")
             return cached_result
 
         self._stats["cache_misses"] += 1
+        logger.debug(f"搜索开始: query={query.query[:50]}..., mode={query.mode.value}, top_k={query.top_k}")
 
         if query.mode == SearchMode.HYBRID:
             results = await self._hybrid_search.search(query)
@@ -248,6 +270,7 @@ class SearchEngine(BaseSearcher):
 
         latency_ms = (time.time() - start_time) * 1000
         self._update_latency_stats(latency_ms)
+        logger.debug(f"搜索完成: 结果数={len(results)}, 耗时={latency_ms:.0f}ms")
 
         return results
 

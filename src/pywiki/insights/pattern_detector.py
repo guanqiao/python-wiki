@@ -408,3 +408,222 @@ class DesignPatternDetector:
             })
 
         return report
+    
+    def detect_architecture_patterns(
+        self,
+        subpackages: list[Any],
+        layers: Optional[list[Any]] = None
+    ) -> list[DetectedPattern]:
+        """检测包级别的架构模式
+        
+        Args:
+            subpackages: 子包信息列表
+            layers: 架构层列表（可选）
+            
+        Returns:
+            检测到的架构模式列表
+        """
+        patterns = []
+        
+        if not subpackages:
+            return patterns
+        
+        patterns.extend(self._detect_layered_architecture_pattern(subpackages, layers))
+        patterns.extend(self._detect_microservice_pattern(subpackages))
+        patterns.extend(self._detect_hexagonal_architecture(subpackages))
+        patterns.extend(self._detect_mvc_pattern(subpackages))
+        patterns.extend(self._detect_repository_pattern(subpackages))
+        
+        return patterns
+    
+    def _detect_layered_architecture_pattern(
+        self,
+        subpackages: list[Any],
+        layers: Optional[list[Any]] = None
+    ) -> list[DetectedPattern]:
+        """检测分层架构模式"""
+        patterns = []
+        
+        layer_indicators = {
+            "presentation": ["controller", "api", "view", "ui", "handler", "endpoint", "route"],
+            "business": ["service", "domain", "usecase", "logic", "manager", "processor"],
+            "data": ["repository", "dao", "model", "entity", "data", "store", "persistence"],
+            "infrastructure": ["config", "util", "common", "infrastructure", "shared"],
+        }
+        
+        detected_layers = set()
+        for sp in subpackages:
+            name_lower = sp.name.lower() if hasattr(sp, 'name') else str(sp).lower()
+            for layer, indicators in layer_indicators.items():
+                for indicator in indicators:
+                    if indicator in name_lower:
+                        detected_layers.add(layer)
+                        break
+        
+        if len(detected_layers) >= 2:
+            patterns.append(DetectedPattern(
+                pattern_name="Layered Architecture",
+                category=PatternCategory.ARCHITECTURAL,
+                description=f"检测到分层架构，包含 {len(detected_layers)} 个层: {', '.join(detected_layers)}",
+                location="project",
+                confidence=0.8 if len(detected_layers) >= 3 else 0.6,
+                evidence=[f"检测到层: {layer}" for layer in detected_layers],
+                benefits=[
+                    "关注点分离",
+                    "易于理解和维护",
+                    "便于测试",
+                ],
+                drawbacks=[
+                    "可能导致层间耦合",
+                    "简单场景可能过度设计",
+                ],
+            ))
+        
+        return patterns
+    
+    def _detect_microservice_pattern(self, subpackages: list[Any]) -> list[DetectedPattern]:
+        """检测微服务架构模式"""
+        patterns = []
+        
+        service_indicators = ["service", "api", "gateway", "proxy", "client"]
+        service_packages = []
+        
+        for sp in subpackages:
+            name_lower = sp.name.lower() if hasattr(sp, 'name') else str(sp).lower()
+            for indicator in service_indicators:
+                if indicator in name_lower:
+                    service_packages.append(sp.name if hasattr(sp, 'name') else str(sp))
+                    break
+        
+        if len(service_packages) >= 3:
+            patterns.append(DetectedPattern(
+                pattern_name="Microservice Architecture",
+                category=PatternCategory.ARCHITECTURAL,
+                description=f"检测到可能的微服务架构，包含 {len(service_packages)} 个服务相关包",
+                location="project",
+                confidence=0.6,
+                evidence=[f"服务包: {name}" for name in service_packages[:5]],
+                benefits=[
+                    "独立部署和扩展",
+                    "技术栈灵活",
+                    "团队自治",
+                ],
+                drawbacks=[
+                    "分布式系统复杂性",
+                    "服务间通信开销",
+                    "运维成本增加",
+                ],
+            ))
+        
+        return patterns
+    
+    def _detect_hexagonal_architecture(self, subpackages: list[Any]) -> list[DetectedPattern]:
+        """检测六边形架构（端口与适配器）"""
+        patterns = []
+        
+        hexagonal_indicators = {
+            "core": ["domain", "core", "application"],
+            "ports": ["port", "interface", "contract"],
+            "adapters": ["adapter", "infrastructure", "persistence", "repository"],
+        }
+        
+        detected_components = set()
+        for sp in subpackages:
+            name_lower = sp.name.lower() if hasattr(sp, 'name') else str(sp).lower()
+            for component, indicators in hexagonal_indicators.items():
+                for indicator in indicators:
+                    if indicator in name_lower:
+                        detected_components.add(component)
+                        break
+        
+        if len(detected_components) >= 2:
+            patterns.append(DetectedPattern(
+                pattern_name="Hexagonal Architecture",
+                category=PatternCategory.ARCHITECTURAL,
+                description="检测到六边形架构模式（端口与适配器）",
+                location="project",
+                confidence=0.7,
+                evidence=[f"组件: {comp}" for comp in detected_components],
+                benefits=[
+                    "核心业务逻辑与技术细节解耦",
+                    "易于测试",
+                    "便于替换基础设施",
+                ],
+                drawbacks=[
+                    "增加抽象层",
+                    "学习曲线较陡",
+                ],
+            ))
+        
+        return patterns
+    
+    def _detect_mvc_pattern(self, subpackages: list[Any]) -> list[DetectedPattern]:
+        """检测 MVC 架构模式"""
+        patterns = []
+        
+        mvc_indicators = {
+            "model": ["model", "entity", "domain"],
+            "view": ["view", "template", "ui", "component"],
+            "controller": ["controller", "handler", "route"],
+        }
+        
+        detected_components = set()
+        for sp in subpackages:
+            name_lower = sp.name.lower() if hasattr(sp, 'name') else str(sp).lower()
+            for component, indicators in mvc_indicators.items():
+                for indicator in indicators:
+                    if indicator in name_lower:
+                        detected_components.add(component)
+                        break
+        
+        if len(detected_components) == 3:
+            patterns.append(DetectedPattern(
+                pattern_name="MVC Architecture",
+                category=PatternCategory.ARCHITECTURAL,
+                description="检测到 MVC（Model-View-Controller）架构模式",
+                location="project",
+                confidence=0.8,
+                evidence=[f"组件: {comp}" for comp in detected_components],
+                benefits=[
+                    "关注点分离",
+                    "易于维护和测试",
+                    "并行开发",
+                ],
+                drawbacks=[
+                    "控制器可能变得臃肿",
+                    "视图和模型可能耦合",
+                ],
+            ))
+        
+        return patterns
+    
+    def _detect_repository_pattern(self, subpackages: list[Any]) -> list[DetectedPattern]:
+        """检测仓储模式"""
+        patterns = []
+        
+        repository_packages = []
+        for sp in subpackages:
+            name_lower = sp.name.lower() if hasattr(sp, 'name') else str(sp).lower()
+            if "repository" in name_lower or "repo" in name_lower:
+                repository_packages.append(sp.name if hasattr(sp, 'name') else str(sp))
+        
+        if repository_packages:
+            patterns.append(DetectedPattern(
+                pattern_name="Repository Pattern",
+                category=PatternCategory.ARCHITECTURAL,
+                description=f"检测到仓储模式，包含 {len(repository_packages)} 个仓储包",
+                location="project",
+                confidence=0.85,
+                evidence=[f"仓储包: {name}" for name in repository_packages[:5]],
+                benefits=[
+                    "数据访问逻辑集中",
+                    "易于单元测试",
+                    "业务逻辑与数据访问解耦",
+                ],
+                drawbacks=[
+                    "可能增加抽象层",
+                    "简单查询可能过度设计",
+                ],
+            ))
+        
+        return patterns

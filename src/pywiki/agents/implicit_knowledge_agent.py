@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pywiki.agents.base import BaseAgent, AgentContext, AgentResult, AgentPriority
+from pywiki.analysis.package_analyzer import PackageAnalyzer
 from pywiki.insights.pattern_detector import DesignPatternDetector, DetectedPattern
 from pywiki.knowledge.implicit_knowledge import ImplicitKnowledgeExtractor, ImplicitKnowledge, KnowledgeType
 from pywiki.parsers.factory import ParserFactory
@@ -38,6 +39,7 @@ class ImplicitKnowledgeAgent(BaseAgent):
         self._pattern_detector = DesignPatternDetector()
         self._knowledge_extractor = ImplicitKnowledgeExtractor()
         self._parser_factory = ParserFactory()
+        self._package_analyzer = PackageAnalyzer(parser_factory=self._parser_factory)
     
     def get_system_prompt(self) -> str:
         return """# 角色定义
@@ -167,9 +169,89 @@ class ImplicitKnowledgeAgent(BaseAgent):
         dependency_insights = self._analyze_dependencies(project_path)
         insights.extend(dependency_insights)
         
+        package_insights = self._analyze_package_structure(project_path)
+        insights.extend(package_insights)
+        
         if self.llm_client:
             architecture_insights = await self._analyze_architecture_with_llm(project_path)
             insights.extend(architecture_insights)
+        
+        return insights
+    
+    def _analyze_package_structure(self, project_path: Path) -> list[KnowledgeInsight]:
+        """分析包结构，提取架构相关的隐性知识"""
+        insights = []
+        
+        subpackages = self._package_analyzer.detect_subpackages(project_path)
+        if not subpackages:
+            return insights
+        
+        layers = self._package_analyzer.detect_layered_architecture(subpackages)
+        
+        if layers:
+            layer_names = [layer.name for layer in layers]
+            insights.append(KnowledgeInsight(
+                category="architecture_pattern",
+                title="分层架构模式",
+                description=f"项目采用分层架构，检测到 {len(layers)} 个架构层: {', '.join(layer_names)}",
+                evidence=[f"层 {layer.name}: {', '.join(layer.packages[:3])}" for layer in layers],
+                confidence=0.85,
+                suggestions=[
+                    "确保层间依赖方向正确",
+                    "考虑使用依赖注入解耦各层",
+                ],
+            ))
+        
+        dependencies = self._package_analyzer.analyze_package_dependencies(subpackages)
+        circular_deps = self._package_analyzer.detect_circular_dependencies(dependencies)
+        
+        if circular_deps:
+            insights.append(KnowledgeInsight(
+                category="tech_debt",
+                title="包循环依赖",
+                description=f"检测到 {len(circular_deps)} 个包级别的循环依赖，可能导致维护困难",
+                evidence=[f"循环: {' -> '.join(cycle)}" for cycle in circular_deps[:3]],
+                confidence=0.9,
+                suggestions=[
+                    "重构包结构以消除循环依赖",
+                    "引入接口层进行解耦",
+                    "考虑依赖倒置原则",
+                ],
+            ))
+        
+        violations = self._package_analyzer.analyze_package_boundaries(subpackages, layers)
+        
+        if violations:
+            insights.append(KnowledgeInsight(
+                category="tech_debt",
+                title="架构层边界违规",
+                description=f"检测到 {len(violations)} 个架构层边界违规",
+                evidence=[
+                    f"{v['source_layer']} -> {v['target_layer']}: {v['source_package']}"
+                    for v in violations[:5]
+                ],
+                confidence=0.8,
+                suggestions=[
+                    "检查依赖方向是否符合分层架构原则",
+                    "重构违规的依赖关系",
+                ],
+            ))
+        
+        metrics = self._package_analyzer.calculate_package_metrics(subpackages)
+        high_coupling = [m for m in metrics if m.coupling > 0.7]
+        
+        if high_coupling:
+            insights.append(KnowledgeInsight(
+                category="tech_debt",
+                title="高耦合包",
+                description=f"检测到 {len(high_coupling)} 个高耦合包（耦合度 > 0.7）",
+                evidence=[f"{m.package_name}: 耦合度 {m.coupling:.2f}" for m in high_coupling[:5]],
+                confidence=0.75,
+                suggestions=[
+                    "考虑拆分高耦合包",
+                    "引入接口降低直接依赖",
+                ],
+            ))
         
         return insights
     

@@ -346,23 +346,25 @@ class PreviewPanel(QWidget):
                     text-decoration: underline;
                 }}
             </style>
-            <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
             <script>
-                document.addEventListener('DOMContentLoaded', function() {{
-                    var codeBlocks = document.querySelectorAll('pre code.language-mermaid');
-                    codeBlocks.forEach(function(block) {{
-                        var pre = block.parentElement;
-                        var div = document.createElement('div');
-                        div.className = 'mermaid';
-                        div.textContent = block.textContent;
-                        pre.parentNode.replaceChild(div, pre);
-                    }});
-                    mermaid.initialize({{ 
-                        startOnLoad: true,
-                        theme: 'default'
-                    }});
-                }});
+                function initMermaid() {{
+                    if (typeof mermaid !== 'undefined') {{
+                        var codeBlocks = document.querySelectorAll('pre code.language-mermaid');
+                        codeBlocks.forEach(function(block) {{
+                            var pre = block.parentElement;
+                            var div = document.createElement('div');
+                            div.className = 'mermaid';
+                            div.textContent = block.textContent;
+                            pre.parentNode.replaceChild(div, pre);
+                        }});
+                        mermaid.initialize({{ 
+                            startOnLoad: true,
+                            theme: 'default'
+                        }});
+                    }}
+                }}
             </script>
+            <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" onload="initMermaid()" onerror="console.error('Mermaid 加载失败')"></script>
         </head>
         <body>
             {html}
