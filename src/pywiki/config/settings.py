@@ -52,8 +52,9 @@ class Settings(BaseSettings):
         if self._app_config is None:
             return
 
+        json_str = self._app_config.model_dump_json(indent=2)
         with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(self._app_config.model_dump(mode="json"), f, indent=2, ensure_ascii=False, default=str)
+            f.write(json_str)
 
     def get_project(self, name: str) -> Optional[ProjectConfig]:
         config = self.load_config()
