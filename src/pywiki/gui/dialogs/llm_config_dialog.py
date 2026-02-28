@@ -40,13 +40,7 @@ class LLMTestThread(QThread):
             from pywiki.llm.client import LLMClient
             import asyncio
             
-            client = LLMClient(
-                endpoint=self.config.endpoint,
-                api_key=self.config.api_key.get_secret_value(),
-                model=self.config.model,
-                ca_cert=str(self.config.ca_cert) if self.config.ca_cert else None,
-                timeout=self.config.timeout,
-            )
+            client = LLMClient.from_config(self.config)
             
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
