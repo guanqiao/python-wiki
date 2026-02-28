@@ -27,6 +27,7 @@ from pywiki.generators.docs.test_coverage_generator import TestCoverageGenerator
 from pywiki.generators.docs.code_quality_generator import CodeQualityGenerator
 from pywiki.generators.docs.technical_design_spec_generator import TechnicalDesignSpecGenerator
 from pywiki.config.models import Language
+from pywiki.wiki.structure import WikiStructureManager, WikiStructureConfig
 from pywiki.monitor.logger import logger
 
 
@@ -248,7 +249,19 @@ class DocumentationAgent(BaseAgent):
     ) -> DocGenerationResult:
         """并发生成所有文档"""
         result = DocGenerationResult(success=True)
-        output_path = context.project_path / output_dir if context.project_path else Path(output_dir)
+        
+        structure_manager = WikiStructureManager(WikiStructureConfig(
+            base_dir=str(output_dir),
+            multi_language=True,
+            default_language=language,
+        ))
+        
+        output_path = structure_manager.get_wiki_root(
+            context.project_path or Path("."),
+            language
+        )
+        
+        output_path.mkdir(parents=True, exist_ok=True)
 
         logger.debug(f"文档输出路径: {output_path}")
         generators = self._get_generators(language)
@@ -335,7 +348,18 @@ class DocumentationAgent(BaseAgent):
             return AgentResult.error_result(f"未知的文档类型: {doc_type}")
 
         output_dir = context.metadata.get("output_dir", Path(".python-wiki/repowiki"))
-        output_path = context.project_path / output_dir if context.project_path else Path(output_dir)
+        
+        structure_manager = WikiStructureManager(WikiStructureConfig(
+            base_dir=str(output_dir),
+            multi_language=True,
+            default_language=language,
+        ))
+        
+        output_path = structure_manager.get_wiki_root(
+            context.project_path or Path("."),
+            language
+        )
+        output_path.mkdir(parents=True, exist_ok=True)
 
         doc_context = DocGeneratorContext(
             project_path=context.project_path or Path("."),

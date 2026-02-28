@@ -191,9 +191,25 @@ class TestImplicitKnowledgeExtractor:
     @pytest.fixture
     def extractor(self):
         """创建提取器实例"""
-        with patch('pywiki.knowledge.implicit_extractor.DesignMotivationExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.ArchitectureDecisionExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.TechDebtDetector'):
+        with patch('pywiki.knowledge.design_motivation.DesignMotivationExtractor') as mock_dm, \
+             patch('pywiki.knowledge.architecture_decision.ArchitectureDecisionExtractor') as mock_ad, \
+             patch('pywiki.knowledge.tech_debt_detector.TechDebtDetector') as mock_td:
+
+            mock_dm_instance = MagicMock()
+            mock_dm_instance.extract.return_value = []
+            mock_dm_instance.knowledge_type = KnowledgeType.DESIGN_DECISION
+            mock_dm.return_value = mock_dm_instance
+
+            mock_ad_instance = MagicMock()
+            mock_ad_instance.extract.return_value = []
+            mock_ad_instance.knowledge_type = KnowledgeType.ARCHITECTURE_PATTERN
+            mock_ad.return_value = mock_ad_instance
+
+            mock_td_instance = MagicMock()
+            mock_td_instance.extract.return_value = []
+            mock_td_instance.knowledge_type = KnowledgeType.TECH_DEBT
+            mock_td.return_value = mock_td_instance
+
             return ImplicitKnowledgeExtractor()
 
     def test_extractor_initialization(self, extractor: ImplicitKnowledgeExtractor):
@@ -234,20 +250,23 @@ class TestImplicitKnowledgeExtractorFromModule:
 
     @pytest.fixture
     def extractor(self):
-        with patch('pywiki.knowledge.implicit_extractor.DesignMotivationExtractor') as mock_dm, \
-             patch('pywiki.knowledge.implicit_extractor.ArchitectureDecisionExtractor') as mock_ad, \
-             patch('pywiki.knowledge.implicit_extractor.TechDebtDetector') as mock_td:
+        with patch('pywiki.knowledge.design_motivation.DesignMotivationExtractor') as mock_dm, \
+             patch('pywiki.knowledge.architecture_decision.ArchitectureDecisionExtractor') as mock_ad, \
+             patch('pywiki.knowledge.tech_debt_detector.TechDebtDetector') as mock_td:
 
             mock_dm_instance = MagicMock()
             mock_dm_instance.extract.return_value = []
+            mock_dm_instance.knowledge_type = KnowledgeType.DESIGN_DECISION
             mock_dm.return_value = mock_dm_instance
 
             mock_ad_instance = MagicMock()
             mock_ad_instance.extract.return_value = []
+            mock_ad_instance.knowledge_type = KnowledgeType.ARCHITECTURE_PATTERN
             mock_ad.return_value = mock_ad_instance
 
             mock_td_instance = MagicMock()
             mock_td_instance.extract.return_value = []
+            mock_td_instance.knowledge_type = KnowledgeType.TECH_DEBT
             mock_td.return_value = mock_td_instance
 
             return ImplicitKnowledgeExtractor()
@@ -297,20 +316,23 @@ class TestImplicitKnowledgeExtractorFromClass:
 
     @pytest.fixture
     def extractor(self):
-        with patch('pywiki.knowledge.implicit_extractor.DesignMotivationExtractor') as mock_dm, \
-             patch('pywiki.knowledge.implicit_extractor.ArchitectureDecisionExtractor') as mock_ad, \
-             patch('pywiki.knowledge.implicit_extractor.TechDebtDetector') as mock_td:
+        with patch('pywiki.knowledge.design_motivation.DesignMotivationExtractor') as mock_dm, \
+             patch('pywiki.knowledge.architecture_decision.ArchitectureDecisionExtractor') as mock_ad, \
+             patch('pywiki.knowledge.tech_debt_detector.TechDebtDetector') as mock_td:
 
             mock_dm_instance = MagicMock()
             mock_dm_instance.extract.return_value = []
+            mock_dm_instance.knowledge_type = KnowledgeType.DESIGN_DECISION
             mock_dm.return_value = mock_dm_instance
 
             mock_ad_instance = MagicMock()
             mock_ad_instance.extract.return_value = []
+            mock_ad_instance.knowledge_type = KnowledgeType.ARCHITECTURE_PATTERN
             mock_ad.return_value = mock_ad_instance
 
             mock_td_instance = MagicMock()
             mock_td_instance.extract.return_value = []
+            mock_td_instance.knowledge_type = KnowledgeType.TECH_DEBT
             mock_td.return_value = mock_td_instance
 
             return ImplicitKnowledgeExtractor()
@@ -359,20 +381,23 @@ class TestImplicitKnowledgeExtractorFromCode:
 
     @pytest.fixture
     def extractor(self):
-        with patch('pywiki.knowledge.implicit_extractor.DesignMotivationExtractor') as mock_dm, \
-             patch('pywiki.knowledge.implicit_extractor.ArchitectureDecisionExtractor') as mock_ad, \
-             patch('pywiki.knowledge.implicit_extractor.TechDebtDetector') as mock_td:
+        with patch('pywiki.knowledge.design_motivation.DesignMotivationExtractor') as mock_dm, \
+             patch('pywiki.knowledge.architecture_decision.ArchitectureDecisionExtractor') as mock_ad, \
+             patch('pywiki.knowledge.tech_debt_detector.TechDebtDetector') as mock_td:
 
             mock_dm_instance = MagicMock()
             mock_dm_instance.extract.return_value = []
+            mock_dm_instance.knowledge_type = KnowledgeType.DESIGN_DECISION
             mock_dm.return_value = mock_dm_instance
 
             mock_ad_instance = MagicMock()
             mock_ad_instance.extract.return_value = []
+            mock_ad_instance.knowledge_type = KnowledgeType.ARCHITECTURE_PATTERN
             mock_ad.return_value = mock_ad_instance
 
             mock_td_instance = MagicMock()
             mock_td_instance.extract.return_value = []
+            mock_td_instance.knowledge_type = KnowledgeType.TECH_DEBT
             mock_td.return_value = mock_td_instance
 
             return ImplicitKnowledgeExtractor()
@@ -412,9 +437,25 @@ class TestImplicitKnowledgeExtractorFiltering:
 
     @pytest.fixture
     def extractor(self):
-        with patch('pywiki.knowledge.implicit_extractor.DesignMotivationExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.ArchitectureDecisionExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.TechDebtDetector'):
+        with patch('pywiki.knowledge.design_motivation.DesignMotivationExtractor') as mock_dm, \
+             patch('pywiki.knowledge.architecture_decision.ArchitectureDecisionExtractor') as mock_ad, \
+             patch('pywiki.knowledge.tech_debt_detector.TechDebtDetector') as mock_td:
+
+            mock_dm_instance = MagicMock()
+            mock_dm_instance.extract.return_value = []
+            mock_dm_instance.knowledge_type = KnowledgeType.DESIGN_DECISION
+            mock_dm.return_value = mock_dm_instance
+
+            mock_ad_instance = MagicMock()
+            mock_ad_instance.extract.return_value = []
+            mock_ad_instance.knowledge_type = KnowledgeType.ARCHITECTURE_PATTERN
+            mock_ad.return_value = mock_ad_instance
+
+            mock_td_instance = MagicMock()
+            mock_td_instance.extract.return_value = []
+            mock_td_instance.knowledge_type = KnowledgeType.TECH_DEBT
+            mock_td.return_value = mock_td_instance
+
             return ImplicitKnowledgeExtractor()
 
     def test_get_knowledge_by_type(self, extractor: ImplicitKnowledgeExtractor):
@@ -517,9 +558,25 @@ class TestImplicitKnowledgeExtractorReport:
 
     @pytest.fixture
     def extractor(self):
-        with patch('pywiki.knowledge.implicit_extractor.DesignMotivationExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.ArchitectureDecisionExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.TechDebtDetector'):
+        with patch('pywiki.knowledge.design_motivation.DesignMotivationExtractor') as mock_dm, \
+             patch('pywiki.knowledge.architecture_decision.ArchitectureDecisionExtractor') as mock_ad, \
+             patch('pywiki.knowledge.tech_debt_detector.TechDebtDetector') as mock_td:
+
+            mock_dm_instance = MagicMock()
+            mock_dm_instance.extract.return_value = []
+            mock_dm_instance.knowledge_type = KnowledgeType.DESIGN_DECISION
+            mock_dm.return_value = mock_dm_instance
+
+            mock_ad_instance = MagicMock()
+            mock_ad_instance.extract.return_value = []
+            mock_ad_instance.knowledge_type = KnowledgeType.ARCHITECTURE_PATTERN
+            mock_ad.return_value = mock_ad_instance
+
+            mock_td_instance = MagicMock()
+            mock_td_instance.extract.return_value = []
+            mock_td_instance.knowledge_type = KnowledgeType.TECH_DEBT
+            mock_td.return_value = mock_td_instance
+
             return ImplicitKnowledgeExtractor()
 
     def test_generate_report(self, extractor: ImplicitKnowledgeExtractor):
@@ -567,9 +624,25 @@ class TestImplicitKnowledgeExtractorCache:
 
     @pytest.fixture
     def extractor(self):
-        with patch('pywiki.knowledge.implicit_extractor.DesignMotivationExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.ArchitectureDecisionExtractor'), \
-             patch('pywiki.knowledge.implicit_extractor.TechDebtDetector'):
+        with patch('pywiki.knowledge.design_motivation.DesignMotivationExtractor') as mock_dm, \
+             patch('pywiki.knowledge.architecture_decision.ArchitectureDecisionExtractor') as mock_ad, \
+             patch('pywiki.knowledge.tech_debt_detector.TechDebtDetector') as mock_td:
+
+            mock_dm_instance = MagicMock()
+            mock_dm_instance.extract.return_value = []
+            mock_dm_instance.knowledge_type = KnowledgeType.DESIGN_DECISION
+            mock_dm.return_value = mock_dm_instance
+
+            mock_ad_instance = MagicMock()
+            mock_ad_instance.extract.return_value = []
+            mock_ad_instance.knowledge_type = KnowledgeType.ARCHITECTURE_PATTERN
+            mock_ad.return_value = mock_ad_instance
+
+            mock_td_instance = MagicMock()
+            mock_td_instance.extract.return_value = []
+            mock_td_instance.knowledge_type = KnowledgeType.TECH_DEBT
+            mock_td.return_value = mock_td_instance
+
             return ImplicitKnowledgeExtractor()
 
     def test_clear_cache(self, extractor: ImplicitKnowledgeExtractor):

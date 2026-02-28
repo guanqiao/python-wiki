@@ -15,6 +15,7 @@ from jinja2 import Environment, FileSystemLoader, Template
 
 from pywiki.config.models import Language
 from pywiki.parsers.types import ModuleInfo, ParseResult
+from pywiki.wiki.structure import DocCategory
 
 
 class DocType(str, Enum):
@@ -108,24 +109,30 @@ class DocGeneratorContext:
 
     def get_output_path(self, doc_type: DocType) -> Path:
         """获取文档输出路径"""
-        path_map = {
-            DocType.OVERVIEW: self.output_dir / "overview.md",
-            DocType.TECH_STACK: self.output_dir / "tech-stack.md",
-            DocType.API: self.output_dir / "api" / "index.md",
-            DocType.ARCHITECTURE: self.output_dir / "architecture" / "system-architecture.md",
-            DocType.MODULE: self.output_dir / "modules" / "index.md",
-            DocType.DATABASE: self.output_dir / "database" / "schema.md",
-            DocType.CONFIGURATION: self.output_dir / "configuration" / "environment.md",
-            DocType.DEVELOPMENT: self.output_dir / "development" / "getting-started.md",
-            DocType.DEPENDENCIES: self.output_dir / "dependencies" / "external.md",
-            DocType.DEPLOYMENT: self.output_dir / "deployment" / "deployment-guide.md",
-            DocType.TSD: self.output_dir / "tsd" / "design-decisions.md",
-            DocType.IMPLICIT_KNOWLEDGE: self.output_dir / "implicit-knowledge.md",
-            DocType.TEST_COVERAGE: self.output_dir / "test-coverage.md",
-            DocType.CODE_QUALITY: self.output_dir / "code-quality.md",
-            DocType.TECHNICAL_DESIGN_SPEC: self.output_dir / "technical-design-spec.md",
+        DOC_TYPE_TO_CATEGORY = {
+            DocType.OVERVIEW: (DocCategory.OVERVIEW, "README.md"),
+            DocType.TECH_STACK: (DocCategory.OVERVIEW, "tech-stack.md"),
+            DocType.API: (DocCategory.API, "index.md"),
+            DocType.ARCHITECTURE: (DocCategory.ARCHITECTURE, "system-architecture.md"),
+            DocType.MODULE: (DocCategory.MODULES, "index.md"),
+            DocType.DATABASE: (DocCategory.DATABASE, "schema.md"),
+            DocType.CONFIGURATION: (DocCategory.CONFIGURATION, "environment.md"),
+            DocType.DEVELOPMENT: (DocCategory.DEVELOPMENT, "getting-started.md"),
+            DocType.DEPENDENCIES: (DocCategory.DEPENDENCIES, "external.md"),
+            DocType.DEPLOYMENT: (DocCategory.CONFIGURATION, "deployment.md"),
+            DocType.TSD: (DocCategory.DESIGN_DECISIONS, "design-decisions.md"),
+            DocType.IMPLICIT_KNOWLEDGE: (DocCategory.OVERVIEW, "implicit-knowledge.md"),
+            DocType.TEST_COVERAGE: (DocCategory.DEVELOPMENT, "test-coverage.md"),
+            DocType.CODE_QUALITY: (DocCategory.DEVELOPMENT, "code-quality.md"),
+            DocType.TECHNICAL_DESIGN_SPEC: (DocCategory.DESIGN_DECISIONS, "technical-design-spec.md"),
         }
-        return path_map.get(doc_type, self.output_dir / f"{doc_type.value}.md")
+        
+        mapping = DOC_TYPE_TO_CATEGORY.get(doc_type)
+        if mapping:
+            category, filename = mapping
+            return self.output_dir / category.value / filename
+        
+        return self.output_dir / f"{doc_type.value}.md"
     
     def get_cache_path(self) -> Path:
         """获取缓存目录路径"""

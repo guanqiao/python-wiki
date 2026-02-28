@@ -235,17 +235,16 @@ class TestLLMClientStream:
     @pytest.mark.asyncio
     async def test_astream_basic(self, mock_stream_client: LLMClient):
         """测试基本异步流式生成"""
-        mock_stream_client._langchain_llm.astream = AsyncMock()
         mock_chunks = [
             MagicMock(content="Hello"),
             MagicMock(content=" World"),
         ]
 
-        async def async_gen():
+        async def async_gen(*args, **kwargs):
             for chunk in mock_chunks:
                 yield chunk
 
-        mock_stream_client._langchain_llm.astream.return_value = async_gen()
+        mock_stream_client._langchain_llm.astream = async_gen
 
         results = []
         async for chunk in mock_stream_client.astream("Hello"):

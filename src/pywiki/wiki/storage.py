@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from pywiki.config.models import Language
+from pywiki.wiki.structure import DocCategory
 
 
 class WikiStorage:
@@ -47,7 +48,15 @@ class WikiStorage:
 
     def get_module_path(self, module_name: str) -> Path:
         """获取模块文档路径"""
-        return self.language_dir / "modules" / f"{module_name.replace('.', '/')}.md"
+        return self.language_dir / DocCategory.MODULES.value / f"{module_name.replace('.', '/')}.md"
+    
+    def get_category_path(self, category: DocCategory) -> Path:
+        """获取分类目录路径"""
+        return self.language_dir / category.value
+    
+    def get_doc_path(self, category: DocCategory, filename: str) -> Path:
+        """获取文档路径"""
+        return self.language_dir / category.value / filename
 
     async def save_document(self, doc_path: Path, content: str) -> None:
         """保存文档"""
