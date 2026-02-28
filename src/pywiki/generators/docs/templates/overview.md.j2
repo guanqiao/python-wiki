@@ -69,7 +69,7 @@
 | {{ labels['module'] if labels.get('module') else 'Module' }} | {{ labels['description'] }} |
 |------|------|
 {% for module in modules %}
-| [{{ module.name }}](modules/{{ module.path }}.md) | {{ module.description }} |
+| [{{ module.name }}](modules/{{ module.path if module.path and module.path != '.' else module.name }}.md) | {{ module.description }} |
 {% endfor %}
 {% endif %}
 

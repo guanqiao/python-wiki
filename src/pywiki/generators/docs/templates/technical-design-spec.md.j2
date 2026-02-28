@@ -43,14 +43,14 @@
 {% if spec_data.get('executive_summary') %}
 ### {{ labels['overview'] }}
 
-{{ spec_data.executive_summary }}
+{{ spec_data.get('executive_summary') }}
 
 {% endif %}
 
 {% if spec_data.get('key_technical_decisions') %}
 ### {{ labels['key_decisions'] if labels.get('key_decisions') else 'Key Technical Decisions' }}
 
-{% for decision in spec_data.key_technical_decisions %}
+{% for decision in spec_data.get('key_technical_decisions', []) %}
 - {{ decision }}
 {% endfor %}
 
@@ -59,7 +59,7 @@
 {% if spec_data.get('risk_assessment') %}
 ### {{ labels['risk_assessment'] if labels.get('risk_assessment') else 'Risk Assessment' }}
 
-{% for risk in spec_data.risk_assessment %}
+{% for risk in spec_data.get('risk_assessment', []) %}
 - {{ risk }}
 {% endfor %}
 
@@ -68,7 +68,7 @@
 {% if spec_data.get('improvement_roadmap') %}
 ### {{ labels['improvement_roadmap'] if labels.get('improvement_roadmap') else 'Improvement Roadmap' }}
 
-{% for item in spec_data.improvement_roadmap %}
+{% for item in spec_data.get('improvement_roadmap', []) %}
 - {{ item }}
 {% endfor %}
 
@@ -77,7 +77,7 @@
 {% if spec_data.get('compliance_notes') %}
 ### {{ labels['compliance_notes'] if labels.get('compliance_notes') else 'Compliance Notes' }}
 
-{{ spec_data.compliance_notes }}
+{{ spec_data.get('compliance_notes') }}
 
 {% endif %}
 

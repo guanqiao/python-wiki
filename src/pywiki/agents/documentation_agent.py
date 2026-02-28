@@ -82,7 +82,7 @@ class DocumentationAgent(BaseAgent):
         self._progress = DocGenerationProgress()
         self._progress_callback: Optional[Callable[[DocGenerationProgress], None]] = None
         self._cache_enabled: bool = True
-        self._max_concurrent: int = 5
+        self._max_concurrent: int = 15
         self._language: Language = Language.ZH
         logger.debug("DocumentationAgent 初始化完成")
 

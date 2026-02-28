@@ -95,7 +95,10 @@ class DocGeneratorThread(QThread):
         def progress_callback(progress):
             if self._is_cancelled:
                 return
-            pct = int((progress.get("completed_docs", 0) / max(progress.get("total_docs", 1), 1)) * 100)
+            completed = progress.get("completed_docs", [])
+            completed_count = len(completed) if isinstance(completed, list) else completed
+            total = progress.get("total_docs", 1)
+            pct = int((completed_count / max(total, 1)) * 100)
             self.progress_updated.emit(pct, progress.get("current_doc", ""))
         
         manager = WikiManager(
@@ -104,53 +107,42 @@ class DocGeneratorThread(QThread):
             progress_callback=progress_callback,
         )
         
-        total = len(self.doc_types) * len(self.languages)
-        current = 0
-        
         for language in self.languages:
-            lang_name = "中文" if language == Language.ZH else "English"
-            self.progress_updated.emit(0, f"开始生成{lang_name}文档...")
+            if self._is_cancelled:
+                logger.info("文档生成已取消")
+                break
             
-            for doc_type in self.doc_types:
-                if self._is_cancelled:
-                    logger.info("文档生成已取消")
-                    break
-                
-                while self._is_paused:
-                    self.paused_state_changed.emit(True)
-                    await asyncio.sleep(0.1)
-                    if self._is_cancelled:
-                        break
-                
+            while self._is_paused:
+                self.paused_state_changed.emit(True)
+                await asyncio.sleep(0.1)
                 if self._is_cancelled:
                     break
-                
-                self.paused_state_changed.emit(False)
-                
-                stage_name = f"{doc_type.value} ({lang_name})"
-                self.stage_changed.emit(stage_name, "running")
-                self.progress_updated.emit(
-                    int((current / total) * 100),
-                    f"[{lang_name}] 正在生成: {doc_type.value}"
-                )
-                logger.info(f"开始生成文档: {doc_type.value}, 语言: {language.value}")
-                
-                try:
-                    result = await manager.generate_doc(doc_type, language=language)
-                    if result.get("success"):
-                        self.stage_changed.emit(stage_name, "completed")
-                        logger.info(f"文档生成成功: {doc_type.value} ({lang_name})")
-                    else:
-                        self.stage_changed.emit(stage_name, "error")
-                        logger.error(f"文档生成失败: {doc_type.value} ({lang_name}) - {result.get('message', '未知错误')}")
-                except Exception as e:
-                    logger.log_exception(f"文档生成异常: {doc_type.value} ({lang_name})", e)
-                    self.stage_changed.emit(stage_name, "error")
-                
-                current += 1
             
             if self._is_cancelled:
                 break
+            
+            self.paused_state_changed.emit(False)
+            lang_name = "中文" if language == Language.ZH else "English"
+            self.progress_updated.emit(0, f"开始生成{lang_name}文档...")
+            logger.info(f"开始批量生成文档: 类型={[d.value for d in self.doc_types]}, 语言={lang_name}")
+            
+            try:
+                result = await manager.generate_docs(
+                    doc_types=self.doc_types,
+                    language=language,
+                    progress_callback=progress_callback,
+                )
+                
+                if result.get("success"):
+                    generated_count = len(result.get("generated_files", []))
+                    failed_count = len(result.get("failed_docs", []))
+                    logger.info(f"文档生成完成: {lang_name}, 成功={generated_count}, 失败={failed_count}")
+                    self.progress_updated.emit(100, f"{lang_name}文档生成完成")
+                else:
+                    logger.error(f"文档生成失败: {lang_name} - {result.get('message', '未知错误')}")
+                    
+            except Exception as e:
+                logger.log_exception(f"文档生成异常: {lang_name}", e)
         
         logger.info(f"文档生成完成: {self.project.name}")
         self.generation_completed.emit(True, "文档生成完成")

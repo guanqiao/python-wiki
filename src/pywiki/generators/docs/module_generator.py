@@ -66,10 +66,35 @@ class ModuleGenerator(BaseDocGenerator):
         if not context.parse_result or not context.parse_result.modules:
             return modules_info
 
+        invalid_module_patterns = [
+            'package-info', 'package_info',
+            'module-info', 'module_info',
+        ]
+        
         for module in context.parse_result.modules:
+            module_name = module.name
+            
+            is_invalid = False
+            for pattern in invalid_module_patterns:
+                if pattern in module_name.lower():
+                    is_invalid = True
+                    break
+            
+            if is_invalid:
+                continue
+            
+            if len(module_name) < 3:
+                continue
+            
+            clean_name = module_name.replace(';', '.').replace(' ', '')
+            if not clean_name.replace('.', '').replace('_', '').isalnum():
+                continue
+            
+            path = clean_name.replace(".", "/")
+            
             module_info = {
-                "name": module.name,
-                "path": module.name.replace(".", "/"),
+                "name": clean_name,
+                "path": path,
                 "file_path": str(module.file_path) if hasattr(module, 'file_path') and module.file_path else "",
                 "description": module.docstring.split("\n")[0] if module.docstring else "",
                 "full_docstring": module.docstring or "",

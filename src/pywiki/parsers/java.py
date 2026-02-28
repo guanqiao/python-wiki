@@ -490,6 +490,27 @@ class JavaParser(BaseParser):
 
         return modifiers, annotations
 
+    def _parse_modifiers_with_text(self, node, source: str) -> tuple[list[str], list[str], list[str]]:
+        """解析修饰符和注解，返回注解名称和完整文本"""
+        modifiers = []
+        annotations = []
+        annotation_texts = []
+
+        for child in node.children:
+            if child.type in ("public", "private", "protected", "static", "final",
+                             "abstract", "synchronized", "volatile", "transient",
+                             "native", "strictfp"):
+                modifiers.append(child.type)
+            elif child.type in ("annotation", "marker_annotation"):
+                ann_name = self._parse_annotation_name(child, source)
+                ann_text = self._get_node_text(child, source)
+                if ann_name:
+                    annotations.append(ann_name)
+                if ann_text:
+                    annotation_texts.append(ann_text)
+
+        return modifiers, annotations, annotation_texts
+
     def _parse_annotation_name(self, node, source: str) -> str:
         """解析注解名称"""
         for child in node.children:
@@ -707,14 +728,16 @@ class JavaParser(BaseParser):
         is_static = False
         is_final = False
         field_annotations = []
+        field_annotation_texts = []
 
         for child in node.children:
             if child.type == "modifiers":
-                mods, anns = self._parse_modifiers(child, source)
+                mods, anns, ann_texts = self._parse_modifiers_with_text(child, source)
                 visibility = self._get_visibility_from_modifiers(mods)
                 is_static = "static" in mods
                 is_final = "final" in mods
                 field_annotations = anns
+                field_annotation_texts = ann_texts
             elif child.type == "type_identifier" or child.type == "scoped_type_identifier":
                 type_hint = self._get_node_text(child, source)
             elif child.type == "variable_declarator":
@@ -726,7 +749,7 @@ class JavaParser(BaseParser):
                             type_hint=type_hint,
                             visibility=visibility,
                             is_readonly=is_final,
-                            decorators=field_annotations,
+                            decorators=field_annotation_texts if field_annotation_texts else field_annotations,
                         )
                         fields.append(prop)
 

@@ -571,16 +571,24 @@ class OverviewGenerator(BaseDocGenerator):
         if not filtered_modules:
             return ""
         
+        filtered_modules = [m for m in filtered_modules if len(m.name) > 3]
+        
+        if not filtered_modules:
+            return ""
+        
         modules = filtered_modules[:15]
         
         lines = ["graph TB"]
         
         module_map = {}
-        for module in modules:
-            safe_name = self._sanitize_id(module.name)
+        used_names = set()
+        
+        for idx, module in enumerate(modules):
+            safe_name = self._generate_unique_id(module.name, idx, used_names)
+            used_names.add(safe_name)
             module_map[module.name] = safe_name
             display_name = self._extract_display_name(module.name)
-            lines.append(f"    {safe_name}[{display_name}]")
+            lines.append(f"    {safe_name}[\"{display_name}\"]")
 
         added_edges = set()
         for module in modules:
@@ -611,15 +619,41 @@ class OverviewGenerator(BaseDocGenerator):
 
         return "\n".join(lines)
 
+    def _generate_unique_id(self, name: str, index: int, used_names: set) -> str:
+        """生成唯一的 Mermaid ID"""
+        parts = name.replace(".", "_").split("_")
+        meaningful_parts = [p for p in parts if p and len(p) > 1 and not p.isdigit()]
+        
+        if meaningful_parts:
+            candidate = "_".join(meaningful_parts[:3])
+        else:
+            candidate = f"mod_{index}"
+        
+        candidate = self._sanitize_id(candidate)
+        
+        base_candidate = candidate
+        counter = 1
+        while candidate in used_names:
+            candidate = f"{base_candidate[:20]}_{counter}"
+            counter += 1
+        
+        return candidate[:30]
+
     def _sanitize_id(self, name: str) -> str:
         """将名称转换为有效的 Mermaid ID"""
         sanitized = name.replace("\\", "_").replace("/", "_")
         sanitized = sanitized.replace(".", "_").replace("-", "_").replace(" ", "_")
         sanitized = sanitized.replace(":", "_").replace("(", "_").replace(")", "_")
+        sanitized = sanitized.replace("[", "_").replace("]", "_")
+        sanitized = sanitized.replace("{", "_").replace("}", "_")
         while "__" in sanitized:
             sanitized = sanitized.replace("__", "_")
         sanitized = sanitized.strip("_")
-        return sanitized[:25]
+        
+        if len(sanitized) < 2:
+            sanitized = f"node_{sanitized}"
+        
+        return sanitized[:30]
 
     def _is_third_party_module(self, module_name: str, project_name: str) -> bool:
         """判断是否为第三方库模块"""
@@ -676,6 +710,76 @@ class OverviewGenerator(BaseDocGenerator):
                 })
 
         return modules[:20]
+
+    def _extract_java_modules_from_build(self, context: DocGeneratorContext) -> list[dict[str, str]]:
+        """从 Maven/Gradle 构建文件中提取 Java 模块信息"""
+        modules = []
+        
+        try:
+            analyzer = PackageAnalyzer()
+            module_structure = analyzer.get_java_module_structure(context.project_path)
+            
+            if not module_structure.get("is_java_project"):
+                return []
+            
+            for module_info in module_structure.get("modules", []):
+                name = module_info.get("name", "")
+                if not name:
+                    continue
+                
+                sub_modules = module_info.get("sub_modules", [])
+                raw_path = module_info.get("path", ".")
+                module_path = raw_path if raw_path and raw_path != "." else name
+                description = module_info.get("description", "")
+                artifact_id = module_info.get("artifact_id", name)
+                
+                if sub_modules:
+                    modules.append({
+                        "name": artifact_id,
+                        "full_name": artifact_id,
+                        "path": module_path,
+                        "description": description if description else f"{artifact_id} 父模块",
+                        "class_count": 0,
+                        "func_count": 0,
+                        "module_type": module_info.get("type", "maven"),
+                        "sub_module_count": len(sub_modules),
+                    })
+                    
+                    for sub in sub_modules:
+                        sub_name = sub.get("name", "")
+                        sub_artifact_id = sub.get("artifact_id", sub_name)
+                        if sub_name:
+                            sub_raw_path = sub.get("path", sub_name)
+                            sub_path = sub_raw_path if sub_raw_path and sub_raw_path != "." else sub_artifact_id
+                            sub_desc = sub.get("description", "")
+                            modules.append({
+                                "name": sub_artifact_id,
+                                "full_name": sub_artifact_id,
+                                "path": sub_path,
+                                "description": sub_desc if sub_desc else "",
+                                "class_count": 0,
+                                "func_count": 0,
+                                "module_type": sub.get("type", "maven"),
+                                "parent_module": artifact_id,
+                            })
+                else:
+                    modules.append({
+                        "name": artifact_id,
+                        "full_name": artifact_id,
+                        "path": module_path,
+                        "description": description if description else "",
+                        "class_count": 0,
+                        "func_count": 0,
+                        "module_type": module_info.get("type", "maven"),
+                    })
+            
+            if modules:
+                return modules[:20]
+                
+        except Exception as e:
+            logger.warning(f"Failed to extract Java modules from build file: {e}")
+        
+        return []
 
     def _extract_display_name(self, module_name: str) -> str:
         """提取模块显示名称"""
@@ -838,14 +942,34 @@ class OverviewGenerator(BaseDocGenerator):
         if pom_path.exists() and not metadata["version"]:
             try:
                 content = pom_path.read_text(encoding="utf-8")
+                
+                properties = {}
+                prop_pattern = r'<(\w+(?:\.\w+)*)>\s*([^<]+)\s*</\1>'
+                for match in re.finditer(prop_pattern, content):
+                    prop_name = match.group(1)
+                    prop_value = match.group(2).strip()
+                    properties[prop_name] = prop_value
+                
+                def resolve_property(value: str) -> str:
+                    if value.startswith("${") and value.endswith("}"):
+                        prop_name = value[2:-1]
+                        resolved = properties.get(prop_name, value)
+                        if resolved != value and resolved.startswith("${"):
+                            return resolve_property(resolved)
+                        return resolved
+                    return value
+                
                 version_match = re.search(r"<version>([^<]+)</version>", content)
                 if version_match:
-                    metadata["version"] = version_match.group(1)
+                    version_value = version_match.group(1)
+                    metadata["version"] = resolve_property(version_value)
                 
                 group_match = re.search(r"<groupId>([^<]+)</groupId>", content)
                 artifact_match = re.search(r"<artifactId>([^<]+)</artifactId>", content)
                 if group_match and artifact_match:
-                    metadata["repository"] = f"{group_match.group(1)}/{artifact_match.group(1)}"
+                    group_id = resolve_property(group_match.group(1))
+                    artifact_id = resolve_property(artifact_match.group(1))
+                    metadata["repository"] = f"{group_id}/{artifact_id}"
             except Exception:
                 pass
 

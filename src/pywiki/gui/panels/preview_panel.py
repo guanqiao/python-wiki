@@ -394,7 +394,8 @@ class PreviewPanel(QWidget):
         
         if self._temp_html_file and os.path.exists(self._temp_html_file):
             try:
-                os.remove(self._temp_html_file)
+                temp_dir = os.path.dirname(self._temp_html_file)
+                shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
         
@@ -421,8 +422,6 @@ class PreviewPanel(QWidget):
             content,
             extensions=["tables", "fenced_code", "toc", "codehilite"]
         )
-
-        mermaid_js_content = PreviewPanel._mermaid_js_cache if PreviewPanel._mermaid_js_cache else ""
 
         return f"""
         <!DOCTYPE html>
@@ -515,9 +514,16 @@ class PreviewPanel(QWidget):
                     text-decoration: underline;
                 }}
             </style>
+            <script src="mermaid.min.js"></script>
             <script>
-                function initMermaid() {{
+                document.addEventListener('DOMContentLoaded', function() {{
                     if (typeof mermaid !== 'undefined') {{
+                        mermaid.initialize({{ 
+                            startOnLoad: false,
+                            theme: 'default',
+                            securityLevel: 'loose'
+                        }});
+                        
                         var codeBlocks = document.querySelectorAll('pre code.language-mermaid');
                         codeBlocks.forEach(function(block) {{
                             var pre = block.parentElement;
@@ -526,15 +532,11 @@ class PreviewPanel(QWidget):
                             div.textContent = block.textContent;
                             pre.parentNode.replaceChild(div, pre);
                         }});
-                        mermaid.initialize({{ 
-                            startOnLoad: true,
-                            theme: 'default'
-                        }});
+                        
+                        mermaid.run();
                     }}
-                }}
+                }});
             </script>
-            <script>{mermaid_js_content}</script>
-            <script>initMermaid()</script>
         </head>
         <body>
             {html}
@@ -548,13 +550,17 @@ class PreviewPanel(QWidget):
         
         if self._temp_html_file and os.path.exists(self._temp_html_file):
             try:
-                os.remove(self._temp_html_file)
+                temp_dir = os.path.dirname(self._temp_html_file)
+                shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
         
-        fd, self._temp_html_file = tempfile.mkstemp(suffix=".html", prefix="pywiki_preview_")
+        temp_dir = tempfile.mkdtemp(prefix="pywiki_preview_")
+        self._ensure_mermaid_js_in_temp_dir(temp_dir)
+        
+        self._temp_html_file = os.path.join(temp_dir, "preview.html")
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            with open(self._temp_html_file, 'w', encoding='utf-8') as f:
                 f.write(html)
             self.preview_view.setUrl(QUrl.fromLocalFile(self._temp_html_file))
         except Exception:
@@ -568,7 +574,8 @@ class PreviewPanel(QWidget):
         
         if self._temp_html_file and os.path.exists(self._temp_html_file):
             try:
-                os.remove(self._temp_html_file)
+                temp_dir = os.path.dirname(self._temp_html_file)
+                shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
             self._temp_html_file = None
@@ -577,7 +584,8 @@ class PreviewPanel(QWidget):
         """清理临时文件"""
         if self._temp_html_file and os.path.exists(self._temp_html_file):
             try:
-                os.remove(self._temp_html_file)
+                temp_dir = os.path.dirname(self._temp_html_file)
+                shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
             self._temp_html_file = None

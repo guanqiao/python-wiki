@@ -247,50 +247,75 @@ class APIGenerator(BaseDocGenerator):
             "RequestMapping": None,
         }
         
-        api_class_markers = [
-            "Spring Controller",
-            "Dubbo:",
-            "Feign Client",
-            "@RestController",
-            "@Controller",
-            "@DubboService",
-            "@FeignClient",
-        ]
-        
         for module in context.parse_result.modules:
             for cls in module.classes:
                 cls_docstring = cls.docstring or ""
+                class_name = cls.name
+                class_decorators = getattr(cls, 'decorators', [])
                 
-                is_api_class = any(marker in cls_docstring for marker in api_class_markers)
-                
-                if not is_api_class:
-                    continue
-                
+                is_api_class = False
                 class_base_path = ""
                 class_consumes = []
                 class_produces = []
                 api_type = "REST"
                 
-                if "Route:" in cls_docstring:
-                    match = re.search(r'Route:\s*([^\s|]+)', cls_docstring)
-                    if match:
-                        class_base_path = match.group(1)
-                if "Consumes:" in cls_docstring:
-                    match = re.search(r'Consumes:\s*([^|]+)', cls_docstring)
-                    if match:
-                        class_consumes = [c.strip() for c in match.group(1).split(",")]
-                if "Produces:" in cls_docstring:
-                    match = re.search(r'Produces:\s*([^|]+)', cls_docstring)
-                    if match:
-                        class_produces = [p.strip() for p in match.group(1).split(",")]
+                if class_decorators:
+                    for decorator in class_decorators:
+                        if not decorator:
+                            continue
+                        decorator_str = str(decorator)
+                        decorator_lower = decorator_str.lower()
+                        
+                        if '@restcontroller' in decorator_lower:
+                            is_api_class = True
+                            api_type = "REST"
+                        elif '@controller' in decorator_lower:
+                            is_api_class = True
+                            api_type = "REST"
+                        elif '@feignclient' in decorator_lower or 'feignclient' in decorator_lower:
+                            is_api_class = True
+                            api_type = "Feign"
+                        elif '@dubboservice' in decorator_lower:
+                            is_api_class = True
+                            api_type = "Dubbo"
+                        
+                        if 'requestmapping' in decorator_lower:
+                            path_match = re.search(r'(?:value|path)\s*=\s*["\']([^"\']+)["\']', decorator_str)
+                            if path_match:
+                                class_base_path = path_match.group(1)
+                            
+                            method_match = re.search(r'method\s*=\s*RequestMethod\.(\w+)', decorator_str)
+                            if method_match:
+                                class_base_path = class_base_path or "/"
+                        
+                        consumes_match = re.search(r'consumes\s*=\s*\[[^\]]*\]', decorator_str)
+                        if consumes_match:
+                            class_consumes = ['application/json']
+                        
+                        produces_match = re.search(r'produces\s*=\s*\[[^\]]*\]', decorator_str)
+                        if produces_match:
+                            class_produces = ['application/json']
                 
-                if "Dubbo:" in cls_docstring:
-                    api_type = "Dubbo"
-                elif "Feign Client" in cls_docstring:
-                    api_type = "Feign"
+                if not is_api_class:
+                    markers = ["Spring Controller", "Dubbo:", "Feign Client"]
+                    if any(marker in cls_docstring for marker in markers):
+                        is_api_class = True
+                        if "Dubbo:" in cls_docstring:
+                            api_type = "Dubbo"
+                        elif "Feign Client" in cls_docstring:
+                            api_type = "Feign"
+                    
+                    if "Route:" in cls_docstring:
+                        match = re.search(r'Route:\s*([^\s|]+)', cls_docstring)
+                        if match:
+                            class_base_path = match.group(1)
                 
-                for method in cls.methods:
-                    endpoint_info = self._parse_java_method_endpoint(
+                if not is_api_class:
+                    continue
+                
+                class_methods = getattr(cls, 'methods', [])
+                for method in class_methods:
+                    endpoint_info = self._parse_java_method_endpoint_v2(
                         method, cls, module, class_base_path, 
                         class_consumes, class_produces, spring_annotations, api_type
                     )
@@ -298,6 +323,109 @@ class APIGenerator(BaseDocGenerator):
                         endpoints.append(endpoint_info)
         
         return endpoints[:100]
+
+    def _parse_java_method_endpoint_v2(
+        self,
+        method,
+        cls,
+        module,
+        class_base_path: str,
+        class_consumes: list,
+        class_produces: list,
+        spring_annotations: dict,
+        api_type: str = "REST",
+    ) -> Optional[dict[str, Any]]:
+        """解析Java方法端点 - 直接从注解提取"""
+        method_docstring = method.docstring or ""
+        method_decorators = getattr(method, 'decorators', [])
+        
+        http_method = None
+        path = None
+        consumes = list(class_consumes)
+        produces = list(class_produces)
+        description = method_docstring.split("\n")[0] if method_docstring else ""
+        security = None
+        parameters = []
+        
+        if method_decorators:
+            for decorator in method_decorators:
+                if not decorator:
+                    continue
+                decorator_str = str(decorator)
+                decorator_lower = decorator_str.lower()
+                
+                for ann_name, default_method in spring_annotations.items():
+                    if ann_name.lower() in decorator_lower:
+                        if default_method:
+                            http_method = default_method
+                        else:
+                            method_type_match = re.search(r'method\s*=\s*RequestMethod\.(\w+)', decorator_str)
+                            if method_type_match:
+                                http_method = method_type_match.group(1).upper()
+                            else:
+                                http_method = "GET"
+                        
+                        path_match = re.search(r'(?:value|path)\s*=\s*["\']([^"\']+)["\']', decorator_str)
+                        if path_match:
+                            path = path_match.group(1)
+                        
+                        consumes_match = re.search(r'consumes\s*=\s*\[[^\]]*\]', decorator_str)
+                        if consumes_match:
+                            consumes = ['application/json']
+                        
+                        produces_match = re.search(r'produces\s*=\s*\[[^\]]*\]', decorator_str)
+                        if produces_match:
+                            produces = ['application/json']
+                        
+                        break
+        
+        if not http_method:
+            return None
+        
+        full_path = f"{class_base_path}{path}" if class_base_path and path else (path or class_base_path or "/")
+        
+        method_parameters = getattr(method, 'parameters', [])
+        for param in method_parameters:
+            param_name = getattr(param, 'name', 'param')
+            param_type = getattr(param, 'type_hint', 'Object')
+            param_info = {
+                "name": param_name,
+                "type": param_type or "Object",
+                "required": True,
+                "in": "query",
+                "description": "",
+            }
+            
+            param_str = str(param)
+            if 'requestbody' in param_str.lower():
+                param_info["in"] = "body"
+            elif 'pathvariable' in param_str.lower() or 'pathvariable<' in param_str.lower():
+                param_info["in"] = "path"
+                param_info["required"] = True
+            elif 'requestparam' in param_str.lower() or 'requestparam<' in param_str.lower():
+                param_info["in"] = "query"
+                if 'required' in param_str.lower() and 'false' in param_str.lower():
+                    param_info["required"] = False
+            elif 'requestheader' in param_str.lower() or 'requestheader<' in param_str.lower():
+                param_info["in"] = "header"
+            
+            if param_name not in ["request", "response", "principal", "authentication"]:
+                parameters.append(param_info)
+        
+        return {
+            "path": full_path,
+            "method": http_method,
+            "handler": method.name,
+            "location": f"{module.name}.{cls.name}",
+            "description": description,
+            "parameters": parameters,
+            "return_type": getattr(method, 'return_type', 'void') or "void",
+            "consumes": consumes,
+            "produces": produces,
+            "security": security,
+            "tags": [cls.name.replace("Controller", "").replace("Resource", "").replace("Service", "")],
+            "api_type": api_type,
+        }
 
     def _parse_java_method_endpoint(
         self,

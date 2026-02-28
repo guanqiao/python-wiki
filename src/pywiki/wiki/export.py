@@ -6,6 +6,7 @@ Wiki 文档导出功能
 
 import asyncio
 import time
+import shutil
 from pathlib import Path
 from typing import Optional, List
 
@@ -103,7 +104,7 @@ class WikiExporter:
         logger.info(f"Markdown 导出完成: 文件数={copied_count}, 耗时={duration_ms:.0f}ms")
         return output_path
 
-    def _markdown_to_html(self, md_content: str, title: str = "Wiki", nav_html: str = "") -> str:
+    def _markdown_to_html(self, md_content: str, title: str = "Wiki", nav_html: str = "", js_path: str = "mermaid.min.js") -> str:
         """
         将 Markdown 转换为 HTML，支持 Mermaid 图表
 
@@ -111,6 +112,7 @@ class WikiExporter:
             md_content: Markdown 内容
             title: 页面标题
             nav_html: 导航 HTML
+            js_path: mermaid.min.js 的路径
 
         Returns:
             HTML 内容
@@ -128,17 +130,13 @@ class WikiExporter:
 
         html_content = self._process_mermaid(html_content)
 
-        mermaid_js_content = ""
-        if MERMAID_JS_PATH.exists():
-            mermaid_js_content = MERMAID_JS_PATH.read_text(encoding="utf-8")
-
         html_template = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title}</title>
-    <script>{mermaid_js_content}</script>
+    <script src="{js_path}"></script>
     <style>
         * {{
             box-sizing: border-box;
@@ -293,26 +291,30 @@ class WikiExporter:
         {html_content}
     </div>
     <script>
-        // 初始化 Mermaid
-        mermaid.initialize({{
-            startOnLoad: true,
-            theme: 'default',
-            securityLevel: 'loose'
-        }});
+        document.addEventListener('DOMContentLoaded', function() {{
+            if (typeof mermaid !== 'undefined') {{
+                mermaid.initialize({{
+                    startOnLoad: false,
+                    theme: 'default',
+                    securityLevel: 'loose'
+                }});
+                mermaid.run();
+            }}
 
-        // 搜索功能
-        document.getElementById('searchBox').addEventListener('input', function(e) {{
-            const searchTerm = e.target.value.toLowerCase();
-            const links = document.querySelectorAll('.sidebar a');
+            // 搜索功能
+            document.getElementById('searchBox').addEventListener('input', function(e) {{
+                const searchTerm = e.target.value.toLowerCase();
+                const links = document.querySelectorAll('.sidebar a');
 
-            links.forEach(link => {{
-                const text = link.textContent.toLowerCase();
-                const li = link.closest('li');
-                if (text.includes(searchTerm)) {{
-                    li.style.display = 'block';
-                }} else {{
-                    li.style.display = 'none';
-                }}
+                links.forEach(link => {{
+                    const text = link.textContent.toLowerCase();
+                    const li = link.closest('li');
+                    if (text.includes(searchTerm)) {{
+                        li.style.display = 'block';
+                    }} else {{
+                        li.style.display = 'none';
+                    }}
+                }});
             }});
         }});
     </script>
@@ -330,6 +332,16 @@ class WikiExporter:
         replacement = r'<div class="mermaid">\1</div>'
 
         return re.sub(pattern, replacement, html_content, flags=re.DOTALL)
+
+    def _copy_mermaid_js(self, output_dir: Path) -> None:
+        """复制 Mermaid JS 到输出目录"""
+        if MERMAID_JS_PATH.exists():
+            dest_path = output_dir / "mermaid.min.js"
+            if not dest_path.exists():
+                try:
+                    shutil.copy(str(MERMAID_JS_PATH), str(dest_path))
+                except Exception as e:
+                    logger.warning(f"复制 Mermaid JS 失败: {e}")
 
     async def export_html(
         self,
@@ -350,7 +362,6 @@ class WikiExporter:
         if output_path is None:
             output_path = self.output_dir / "html"
 
-        # 构建导航
         file_tree = self._build_file_tree()
         nav_html = self._generate_nav_html(file_tree)
 
@@ -358,6 +369,8 @@ class WikiExporter:
             logger.info(f"HTML 单文件导出开始")
             output_path = output_path.with_suffix(".html")
             output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            self._copy_mermaid_js(output_path.parent)
 
             all_content = ""
             md_files = sorted(self._get_wiki_files())
@@ -379,6 +392,9 @@ class WikiExporter:
         else:
             logger.info(f"HTML 多文件导出开始")
             output_path.mkdir(parents=True, exist_ok=True)
+
+            self._copy_mermaid_js(output_path)
+
             md_files = self._get_wiki_files()
             
             converted_count = 0
@@ -390,10 +406,14 @@ class WikiExporter:
                 with open(md_file, "r", encoding="utf-8") as f:
                     md_content = f.read()
 
+                depth = len(relative_path.parts) - 1
+                js_path = "../" * depth + "mermaid.min.js" if depth > 0 else "mermaid.min.js"
+
                 html_content = self._markdown_to_html(
                     md_content,
                     title=relative_path.stem,
-                    nav_html=nav_html
+                    nav_html=nav_html,
+                    js_path=js_path
                 )
 
                 with open(dest_path, "w", encoding="utf-8") as f:
@@ -433,6 +453,8 @@ class WikiExporter:
             output_path = self.output_dir / "wiki.pdf"
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self._copy_mermaid_js(output_path.parent)
 
         all_content = ""
         md_files = sorted(self._get_wiki_files())

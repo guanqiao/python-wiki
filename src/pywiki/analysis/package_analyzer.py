@@ -289,10 +289,14 @@ class PackageAnalyzer:
                     if module_pom.exists():
                         try:
                             module_content = module_pom.read_text(encoding="utf-8")
-                            sub_artifact_id = re.search(r"<artifactId>([^<]+)</artifactId>", module_content)
+                            content_without_parent = re.sub(r"<parent>.*?</parent>", "", module_content, flags=re.DOTALL)
+                            sub_artifact_id = re.search(r"<artifactId>([^<]+)</artifactId>", content_without_parent)
+                            sub_description = re.search(r"<description>([^<]*)</description>", content_without_parent)
                             if sub_artifact_id:
                                 sub_module.artifact_id = sub_artifact_id.group(1)
                                 sub_module.name = sub_artifact_id.group(1)
+                            if sub_description:
+                                sub_module.description = sub_description.group(1).strip()
                         except Exception:
                             pass
                     
