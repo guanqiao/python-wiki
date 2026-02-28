@@ -2,8 +2,10 @@
 文档预览面板
 """
 
-from typing import Optional
+from typing import Optional, ClassVar
 from pathlib import Path
+import tempfile
+import os
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -94,13 +96,18 @@ class PreviewPanel(QWidget):
     """文档预览面板"""
 
     document_loaded = pyqtSignal(str)
+    
+    _mermaid_js_cache: ClassVar[Optional[str]] = None
+    _mermaid_js_loaded: ClassVar[bool] = False
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._wiki_dir: Optional[Path] = None
         self._current_doc: Optional[str] = None
         self._load_worker: Optional[DocumentLoadWorker] = None
+        self._temp_html_file: Optional[str] = None
         self._init_ui()
+        self._load_mermaid_js()
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -349,6 +356,19 @@ class PreviewPanel(QWidget):
         if self._current_doc:
             self.preview_view.page().openUrlInNewTab(QUrl.fromLocalFile(self._current_doc))
 
+    def _load_mermaid_js(self) -> None:
+        """预加载 Mermaid JS（使用类级别缓存）"""
+        if PreviewPanel._mermaid_js_loaded:
+            return
+        
+        if MERMAID_JS_PATH.exists():
+            try:
+                PreviewPanel._mermaid_js_cache = MERMAID_JS_PATH.read_text(encoding="utf-8")
+            except Exception:
+                PreviewPanel._mermaid_js_cache = ""
+        
+        PreviewPanel._mermaid_js_loaded = True
+
     def _load_document(self, doc_path: Path) -> None:
         """加载文档"""
         if not doc_path.exists():
@@ -360,7 +380,24 @@ class PreviewPanel(QWidget):
         self.source_edit.setPlainText(content)
         
         html = self._render_html(content)
-        self.preview_view.setHtml(html, QUrl.fromLocalFile(str(doc_path.parent) + "/"))
+        
+        if self._temp_html_file and os.path.exists(self._temp_html_file):
+            try:
+                os.remove(self._temp_html_file)
+            except Exception:
+                pass
+        
+        fd, self._temp_html_file = tempfile.mkstemp(suffix=".html", prefix="pywiki_preview_")
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(html)
+        except Exception:
+            self._temp_html_file = None
+            self.preview_view.setHtml(html, QUrl.fromLocalFile(str(doc_path.parent) + "/"))
+            self.document_loaded.emit(str(doc_path))
+            return
+        
+        self.preview_view.setUrl(QUrl.fromLocalFile(self._temp_html_file))
         
         self.document_loaded.emit(str(doc_path))
 
@@ -371,9 +408,7 @@ class PreviewPanel(QWidget):
             extensions=["tables", "fenced_code", "toc", "codehilite"]
         )
 
-        mermaid_js_content = ""
-        if MERMAID_JS_PATH.exists():
-            mermaid_js_content = MERMAID_JS_PATH.read_text(encoding="utf-8")
+        mermaid_js_content = PreviewPanel._mermaid_js_cache if PreviewPanel._mermaid_js_cache else ""
 
         return f"""
         <!DOCTYPE html>
@@ -496,9 +531,39 @@ class PreviewPanel(QWidget):
     def set_content(self, content: str) -> None:
         self.source_edit.setPlainText(content)
         html = self._render_html(content)
-        self.preview_view.setHtml(html, QUrl("about:blank"))
+        
+        if self._temp_html_file and os.path.exists(self._temp_html_file):
+            try:
+                os.remove(self._temp_html_file)
+            except Exception:
+                pass
+        
+        fd, self._temp_html_file = tempfile.mkstemp(suffix=".html", prefix="pywiki_preview_")
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(html)
+            self.preview_view.setUrl(QUrl.fromLocalFile(self._temp_html_file))
+        except Exception:
+            self._temp_html_file = None
+            self.preview_view.setHtml(html, QUrl("about:blank"))
 
     def clear(self) -> None:
         self.source_edit.clear()
         self.preview_view.setHtml("")
         self._current_doc = None
+        
+        if self._temp_html_file and os.path.exists(self._temp_html_file):
+            try:
+                os.remove(self._temp_html_file)
+            except Exception:
+                pass
+            self._temp_html_file = None
+    
+    def cleanup(self) -> None:
+        """清理临时文件"""
+        if self._temp_html_file and os.path.exists(self._temp_html_file):
+            try:
+                os.remove(self._temp_html_file)
+            except Exception:
+                pass
+            self._temp_html_file = None
