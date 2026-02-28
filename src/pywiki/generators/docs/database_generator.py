@@ -187,7 +187,7 @@ class DatabaseGenerator(BaseDocGenerator):
                         table["columns"].append(column)
 
                     if table["columns"]:
-                        table["indexes"] = self._extract_jpa_indexes(cls_docstring, cls)
+                        table["indexes"] = self._extract_jpa_indexes(cls.docstring or "", cls)
                         tables.append(table)
 
         return tables[:30]

@@ -198,6 +198,8 @@ class JavaParser(BaseParser):
     ) -> ModuleInfo:
         """解析 Java 文件模块"""
         module_name = self._get_module_name(file_path)
+        if module_name is None:
+            return None
         lines = source.split("\n")
 
         module_info = ModuleInfo(
@@ -239,7 +241,13 @@ class JavaParser(BaseParser):
 
     def _get_module_name(self, file_path: Path) -> str:
         """获取模块名称"""
-        return file_path.stem
+        stem = file_path.stem
+        
+        invalid_names = ['package-info', 'package_info', 'module-info', 'module_info']
+        if stem.lower() in invalid_names:
+            return None
+        
+        return stem
 
     def _get_node_text(self, node, source: str) -> str:
         """获取节点文本"""
@@ -318,6 +326,7 @@ class JavaParser(BaseParser):
             docstring=self._extract_javadoc(node, source),
             line_start=node.start_point[0] + 1,
             line_end=node.end_point[0] + 1,
+            decorators=annotations,
         )
 
         for child in node.children:
@@ -385,6 +394,7 @@ class JavaParser(BaseParser):
             docstring=f"Interface\n{self._extract_javadoc(node, source) or ''}".strip(),
             line_start=node.start_point[0] + 1,
             line_end=node.end_point[0] + 1,
+            decorators=annotations,
         )
 
         for child in node.children:
@@ -432,6 +442,7 @@ class JavaParser(BaseParser):
             docstring=f"Enum\n{self._extract_javadoc(node, source) or ''}".strip(),
             line_start=node.start_point[0] + 1,
             line_end=node.end_point[0] + 1,
+            decorators=annotations,
         )
 
         for child in node.children:
@@ -566,6 +577,7 @@ class JavaParser(BaseParser):
             docstring=self._extract_javadoc(node, source),
             line_start=node.start_point[0] + 1,
             line_end=node.end_point[0] + 1,
+            decorators=annotations,
         )
 
         func_info = self._analyze_method_features(func_info, annotations, source)

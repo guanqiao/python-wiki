@@ -225,35 +225,80 @@ class ModuleGenerator(BaseDocGenerator):
         if not modules_info or len(modules_info) < 2:
             return ""
 
+        valid_modules = [m for m in modules_info if m.get("name") and len(m["name"]) > 2]
+        
+        valid_modules = [m for m in valid_modules if not any(
+            p in m["name"].lower() for p in ['package-info', 'module-info']
+        )]
+        
+        if not valid_modules or len(valid_modules) < 2:
+            return ""
+        
         lines = ["graph LR"]
         
         module_map = {}
-        for module in modules_info[:20]:
-            safe_name = module["name"].replace(".", "_").replace("-", "_")[:25]
+        used_names = set()
+        
+        for idx, module in enumerate(valid_modules[:20]):
+            safe_name = self._generate_safe_id(module["name"], idx, used_names)
+            used_names.add(safe_name)
             module_map[module["name"]] = safe_name
             display_name = module["name"].split(".")[-1] if "." in module["name"] else module["name"]
-            lines.append(f"    {safe_name}[{display_name}]")
+            lines.append(f"    {safe_name}[\"{display_name}\"]")
 
         added_edges = set()
-        for module in modules_info[:20]:
-            source_safe = module_map[module["name"]]
+        for module in valid_modules[:20]:
+            source_safe = module_map.get(module["name"])
+            if not source_safe:
+                continue
             
             for imp in module.get("imports", []):
                 imp_module = imp["module"]
                 
-                for other_module in modules_info[:20]:
+                for other_module in valid_modules[:20]:
                     if other_module["name"] == imp_module or other_module["name"].startswith(imp_module + "."):
-                        target_safe = module_map[other_module["name"]]
-                        edge_key = f"{source_safe}->{target_safe}"
-                        if edge_key not in added_edges:
-                            lines.append(f"    {source_safe} --> {target_safe}")
-                            added_edges.add(edge_key)
+                        target_safe = module_map.get(other_module["name"])
+                        if target_safe and source_safe != target_safe:
+                            edge_key = f"{source_safe}->{target_safe}"
+                            if edge_key not in added_edges:
+                                lines.append(f"    {source_safe} --> {target_safe}")
+                                added_edges.add(edge_key)
                         break
 
         if len(added_edges) == 0:
             return ""
 
         return "\n".join(lines)
+
+    def _generate_safe_id(self, name: str, index: int, used_names: set) -> str:
+        """生成安全的 Mermaid ID"""
+        parts = name.replace(".", "_").replace("-", "_").replace(";", "_").split("_")
+        meaningful_parts = [p for p in parts if p and len(p) > 1 and not p.isdigit()]
+        
+        if meaningful_parts:
+            candidate = "_".join(meaningful_parts[:3])
+        else:
+            candidate = f"mod_{index}"
+        
+        candidate = self._sanitize_name(candidate)
+        
+        base_candidate = candidate[:20]
+        counter = 1
+        while candidate in used_names:
+            candidate = f"{base_candidate}_{counter}"
+            counter += 1
+        
+        return candidate[:30]
+
+    def _sanitize_name(self, name: str) -> str:
+        """清理名称"""
+        sanitized = name.replace(" ", "_").replace(":", "_")
+        sanitized = sanitized.replace("(", "").replace(")", "")
+        sanitized = sanitized.replace("[", "").replace("]", "")
+        sanitized = sanitized.replace("{", "").replace("}", "")
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        return sanitized.strip("_")[:30]
 
     def _extract_package_analysis(self, context: DocGeneratorContext) -> dict[str, Any]:
         """提取包分析数据"""
