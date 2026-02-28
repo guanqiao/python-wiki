@@ -253,62 +253,48 @@ class DatabaseGenerator(BaseDocGenerator):
         """验证表名是否有效"""
         if not name or len(name) < 2:
             return False
-        
+
         name_clean = name.strip()
         if len(name_clean) < 2:
             return False
-        
-        if ' ' in name_clean or '\n' in name_clean or '\t' in name_clean:
-            return False
-        
+
+        # 检查是否包含明显的代码片段
         invalid_patterns = [
-            'implements', 'extends', 'class', 'interface', 'abstract',
-            'public', 'private', 'protected', 'static', 'final',
-            'return', 'import', 'package', 'void', 'new',
-            '@', '(', ')', '{', '}', '<', '>', ';', '=',
-            'implements s', 'm impleme', 'lt<t>', 'roller', 'ller',
             'public class', 'private class', 'protected class',
+            'public static', 'private static', 'protected static',
             'private string', 'private int', 'private long', 'private boolean',
-            'private final', 'public static', 'private static',
-            'requestmapping', 'getmapping', 'postmapping', 'putmapping', 'deletemapping',
-            'restcontroller', 'controller', 'service', 'repository',
-            'serializ', 'compar', 'equals', 'hashcode', 'tostring',
-            'override', 'suppresswarnings', 'deprecated',
-            'nullable', 'notnull', 'nonnullable',
-            'parameter', 'method', 'constructor', 'exception',
-            'arraylist', 'hashmap', 'hashset', 'linkedlist',
-            'string[]', 'int[]', 'long[]', 'boolean[]',
-            'object', 'system', 'printstream', 'runtime',
-            'throw', 'throws', 'try', 'catch', 'finally',
-            'if', 'else', 'for', 'while', 'switch', 'case',
-            'null', 'true', 'false', 'this', 'super',
-            'list<', 'map<', 'set<', 'collection<',
-            'req', 'resp', 'dto', 'vo', 'bo', 'po',
-            'exception', 'error', 'throwable',
-            'annotation', 'documented', 'retention', 'target',
-            'element_type', 'runtime_visible',
+            'private final', 'implements', 'extends',
+            'return ', 'import ', 'package ',
+            '@RestController', '@Controller', '@Service', '@Component',
+            'class ', 'interface ', 'enum ',
+            '/**', '*/', '//',
         ]
-        
+
         name_lower = name_clean.lower()
         for pattern in invalid_patterns:
             if pattern.lower() in name_lower:
                 return False
-        
-        if name_lower.startswith('"') or name_lower.startswith("'"):
+
+        # 检查是否包含换行或过多空格（可能是代码片段）
+        if '\n' in name_clean or '\t' in name_clean:
             return False
-        
-        if any(c in name_clean for c in ['`', '\\', '/', '*', '+', '-', '&', '|', '^', '%', '!', '~']):
+
+        # 检查是否以引号开头（字符串字面量）
+        if name_clean[0] in ('"', "'", '`'):
             return False
-        
+
+        # 检查是否以数字开头
         if name_clean[0].isdigit():
             return False
-        
-        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name_clean):
-            if len(name_clean) > 2 and name_clean.islower():
-                return True
-            elif len(name_clean) > 2 and '_' in name_clean:
-                return True
-        
+
+        # 检查是否只包含有效字符（字母、数字、下划线）
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name_clean):
+            return False
+
+        # 表名应该有一定长度，且通常是小写或驼峰/下划线格式
+        if len(name_clean) >= 2:
+            return True
+
         return False
 
     def _extract_java_tables(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
@@ -339,77 +325,90 @@ class DatabaseGenerator(BaseDocGenerator):
         for module in context.parse_result.modules:
             module_lower = module.name.lower()
             is_dal_module = any(kw in module_lower for kw in ['dal', 'dataobject', 'entity', 'domain', 'model', 'pojo'])
-            
+
             for cls in module.classes:
                 is_entity = False
-                table_name = cls.name
+                table_name = None
                 orm_type = "JPA"
-                
+
                 cls_docstring = cls.docstring or ""
                 class_name = cls.name
-                
+
+                # 首先检查是否应该排除（非实体类）
+                should_skip = False
                 for pattern in non_entity_patterns:
                     if class_name.endswith(pattern) or class_name == pattern:
-                        is_entity = False
+                        should_skip = True
                         break
-                else:
-                    if "JPA Entity" in cls_docstring or "MyBatis Plus Entity" in cls_docstring:
+
+                if should_skip:
+                    continue
+
+                # 检查装饰器来确定是否是实体类
+                decorators = getattr(cls, 'decorators', [])
+                for decorator in decorators:
+                    if not decorator:
+                        continue
+                    decorator_str = str(decorator)
+                    decorator_lower = decorator_str.lower()
+
+                    # JPA @Entity
+                    if "@entity" in decorator_lower:
                         is_entity = True
-                        
-                        if "MyBatis Plus Entity" in cls_docstring:
-                            orm_type = "MyBatis Plus"
-                        
-                        table_match = re.search(r'Table:\s*([^\s|]+)', cls_docstring)
-                        if table_match:
-                            table_name = table_match.group(1)
-                    
-                    for suffix in entity_suffixes:
-                        if class_name.endswith(suffix) and len(class_name) > len(suffix) + 2:
+                        # 尝试从 @Table 注解获取表名
+                        name_match = re.search(r'@Table\s*\([^)]*name\s*=\s*["\']([^"\']+)["\']', decorator_str, re.IGNORECASE)
+                        if name_match:
+                            table_name = name_match.group(1)
+
+                    # MyBatis Plus @TableName
+                    if "@tablename" in decorator_lower:
+                        is_entity = True
+                        orm_type = "MyBatis Plus"
+                        name_match = re.search(r'@TableName\s*\(\s*(?:value\s*=\s*)?["\']([^"\']+)["\']', decorator_str, re.IGNORECASE)
+                        if name_match:
+                            table_name = name_match.group(1)
+
+                    # 如果有 @TableId 也是实体类
+                    if "@tableid" in decorator_lower:
+                        is_entity = True
+                        orm_type = "MyBatis Plus"
+
+                # 检查基类
+                if not is_entity:
+                    bases = getattr(cls, 'bases', [])
+                    for base in bases:
+                        if any(entity_base in base for entity_base in ["Entity", "BaseEntity", "AbstractEntity", "Persistable", "BaseDO"]):
                             is_entity = True
                             break
-                
-                decorators = getattr(cls, 'decorators', [])
-                if decorators:
-                    for decorator in decorators:
-                        if not decorator:
-                            continue
-                        decorator_str = str(decorator)
-                        decorator_lower = decorator_str.lower()
-                        
-                        if "@entity" in decorator_lower:
+
+                # 检查类名后缀
+                if not is_entity:
+                    for suffix in entity_suffixes:
+                        if class_name.endswith(suffix) and len(class_name) > len(suffix) + 1:
                             is_entity = True
-                            name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', decorator_str)
-                            if name_match:
-                                table_name = name_match.group(1)
-                        
-                        if "@tablename" in decorator_lower:
-                            is_entity = True
-                            orm_type = "MyBatis Plus"
-                            name_match = re.search(r'(?:value|name)\s*=\s*["\']([^"\']+)["\']', decorator_str)
-                            if name_match:
-                                table_name = name_match.group(1)
-                        
-                        if "@tableid" in decorator_lower:
-                            is_entity = True
-                            orm_type = "MyBatis Plus"
-                
-                bases = getattr(cls, 'bases', [])
-                for base in bases:
-                    if any(entity_base in base for entity_base in ["Entity", "BaseEntity", "AbstractEntity", "Persistable", "BaseDO"]):
-                        is_entity = True
-                
-                if is_dal_module and not any(class_name.endswith(p) for p in non_entity_patterns):
+                            break
+
+                # 检查模块名
+                if not is_entity and is_dal_module:
                     is_entity = True
-                
+
                 if not is_entity:
                     continue
-                
+
+                # 确定表名
+                if not table_name:
+                    # 从类名推断表名（下划线格式）
+                    table_name = self._camel_to_snake(class_name)
+                    # 移除常见的后缀
+                    for suffix in ['_do', '_entity', '_po', '_pojo', '_eo']:
+                        if table_name.endswith(suffix):
+                            table_name = table_name[:-len(suffix)]
+                            break
+
+                # 验证表名
                 if not self._is_valid_table_name(table_name):
                     continue
-                    
-                if table_name == cls.name and not self._is_valid_table_name(class_name):
-                    continue
-                    
+
                 table = {
                     "name": table_name,
                     "class_name": cls.name,
@@ -453,12 +452,41 @@ class DatabaseGenerator(BaseDocGenerator):
 
         return tables[:30]
 
+    def _camel_to_snake(self, name: str) -> str:
+        """将驼峰命名转换为下划线命名"""
+        # 处理连续的大写字母（如 HTTPRequest -> http_request）
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
     def _extract_java_column_from_property(self, prop: Any, cls_docstring: str) -> Optional[dict[str, Any]]:
         """从属性提取Java列信息"""
-        name_lower = prop.name.lower()
-        
+        # 验证字段名是否有效
+        field_name = prop.name.strip()
+
+        # 过滤掉无效的字段名（代码片段）
+        if not field_name or len(field_name) < 1:
+            return None
+
+        # 检查字段名是否包含代码片段
+        invalid_patterns = [
+            'private ', 'public ', 'protected ', 'static ', 'final ',
+            '/**', '*/', '//', '/*',
+            '= ', ';', '{', '}',
+            'String ', 'Integer ', 'Long ', 'Boolean ', 'int ', 'long ', 'bool ',
+            'return ', 'if ', 'else ', 'for ', 'while ',
+        ]
+        for pattern in invalid_patterns:
+            if pattern.lower() in field_name.lower():
+                return None
+
+        # 检查字段名是否包含换行或空格
+        if '\n' in field_name or '\t' in field_name or '  ' in field_name:
+            return None
+
+        name_lower = field_name.lower()
+
         column = {
-            "name": prop.name,
+            "name": field_name,
             "type": self._map_java_type(prop.type_hint or "Object"),
             "constraints": "",
             "description": "",
@@ -469,80 +497,83 @@ class DatabaseGenerator(BaseDocGenerator):
             "precision": None,
             "scale": None,
         }
-        
+
         constraints = []
-        
+
         if hasattr(prop, 'decorators') and prop.decorators:
             for decorator in prop.decorators:
                 decorator_lower = decorator.lower()
-                
+
                 if "@id" in decorator_lower:
                     constraints.append("PRIMARY KEY")
                     column["is_primary"] = True
-                
+
                 if "@tableid" in decorator_lower:
                     constraints.append("PRIMARY KEY")
                     column["is_primary"] = True
-                
+
                 if "@column" in decorator_lower:
                     if "unique = true" in decorator_lower or "unique=true" in decorator_lower:
                         constraints.append("UNIQUE")
                     if "nullable = false" in decorator_lower or "nullable=false" in decorator_lower:
                         constraints.append("NOT NULL")
                         column["is_nullable"] = False
-                    
+
                     length_match = re.search(r'length\s*=\s*(\d+)', decorator)
                     if length_match:
                         column["length"] = int(length_match.group(1))
-                    
+
                     precision_match = re.search(r'precision\s*=\s*(\d+)', decorator)
                     if precision_match:
                         column["precision"] = int(precision_match.group(1))
-                    
+
                     scale_match = re.search(r'scale\s*=\s*(\d+)', decorator)
                     if scale_match:
                         column["scale"] = int(scale_match.group(1))
-                    
+
+                    # 从 @Column 注解获取字段名
                     name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', decorator)
                     if name_match:
                         column["name"] = name_match.group(1)
-                
+
                 if "@tablefield" in decorator_lower:
+                    # 从 @TableField 注解获取字段名
                     name_match = re.search(r'(?:value|name)\s*=\s*["\']([^"\']+)["\']', decorator)
                     if name_match:
                         column["name"] = name_match.group(1)
-                    
+
                     if "exist = false" in decorator_lower or "exist=false" in decorator_lower:
                         return None
-                
+
                 if "@onetomany" in decorator_lower or "@manytoone" in decorator_lower or "@onetoone" in decorator_lower or "@manytomany" in decorator_lower:
                     constraints.append("FOREIGN KEY")
                     column["is_foreign"] = True
-                
+
                 if "@joincolumn" in decorator_lower:
                     constraints.append("FOREIGN KEY")
                     column["is_foreign"] = True
                     name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', decorator)
                     if name_match:
                         column["name"] = name_match.group(1)
-                
+
                 if "@version" in decorator_lower:
                     constraints.append("VERSION")
                     column["description"] = "乐观锁版本号"
-                
+
                 if "@logicdelete" in decorator_lower or "@tablelogic" in decorator_lower:
                     constraints.append("LOGIC_DELETE")
                     column["description"] = "逻辑删除标记"
-        
+
+        # 根据字段名推断约束
         if name_lower == "id":
             if "PRIMARY KEY" not in constraints:
                 constraints.append("PRIMARY KEY")
                 column["is_primary"] = True
-        elif name_lower.endswith("id") and not name_lower.startswith("is"):
+        elif name_lower.endswith("id") and not name_lower.startswith("is") and len(name_lower) > 2:
             if "FOREIGN KEY" not in constraints:
                 constraints.append("FOREIGN KEY")
                 column["is_foreign"] = True
-        
+
         if name_lower in ("createdat", "updatedat", "deletedat", "create_time", "update_time", "delete_time"):
             constraints.append("TIMESTAMP")
             if "createdat" in name_lower or "create_time" in name_lower:
@@ -551,13 +582,13 @@ class DatabaseGenerator(BaseDocGenerator):
                 column["description"] = "更新时间"
             elif "deletedat" in name_lower or "delete_time" in name_lower:
                 column["description"] = "删除时间"
-        
+
         if "email" in name_lower:
             if "UNIQUE" not in constraints:
                 constraints.append("UNIQUE")
-        
+
         column["constraints"] = ", ".join(constraints) if constraints else ""
-        
+
         return column
 
     def _clean_java_docstring(self, docstring: str) -> str:
@@ -1163,20 +1194,26 @@ class DatabaseGenerator(BaseDocGenerator):
     def _parse_sql_create_tables(self, content: str) -> list[dict[str, Any]]:
         """解析 SQL 内容中的 CREATE TABLE 语句"""
         tables = []
-        
-        create_pattern = r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"']?(\w+)[`\"']?\s*\("
+
+        # 支持多种表名格式：普通标识符、反引号、方括号、双引号
+        create_pattern = r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:[`\"\[]?([^`\"\]\s]+)[`\"\]]?)\s*\("
         matches = list(re.finditer(create_pattern, content, re.IGNORECASE))
-        
+
         for i, match in enumerate(matches):
-            table_name = match.group(1)
+            table_name = match.group(1).strip()
+
+            # 验证表名是否有效
+            if not self._is_valid_table_name(table_name):
+                continue
+
             start_pos = match.end()
-            
+
             end_pos = self._find_closing_parenthesis(content, start_pos - 1)
             if end_pos == -1:
                 continue
-                
+
             columns_str = content[start_pos:end_pos]
-            
+
             table = {
                 "name": table_name,
                 "class_name": table_name,
@@ -1186,12 +1223,12 @@ class DatabaseGenerator(BaseDocGenerator):
                 "primary_key": "",
                 "foreign_keys": [],
             }
-            
+
             self._parse_column_definitions(columns_str, table)
-            
+
             if table["columns"]:
                 tables.append(table)
-        
+
         return tables
 
     def _find_closing_parenthesis(self, content: str, start: int) -> int:
@@ -1293,59 +1330,75 @@ class DatabaseGenerator(BaseDocGenerator):
         col_def = col_def.strip()
         if not col_def:
             return None
-        
+
         tokens = self._tokenize_column_def(col_def)
         if not tokens:
             return None
-        
+
         col_name = tokens[0].strip("`\"'")
         if not col_name or col_name.upper() in ("PRIMARY", "FOREIGN", "UNIQUE", "INDEX", "KEY", "CHECK", "CONSTRAINT"):
             return None
-        
+
         col_type = tokens[1] if len(tokens) > 1 else "UNKNOWN"
         col_type = self._extract_complete_type(col_type, col_def)
-        
+
         constraints = []
         is_primary = False
         is_foreign = False
         description = ""
-        
+
         col_def_upper = col_def.upper()
-        
-        if "PRIMARY KEY" in col_def_upper or "PRIMARYKEY" in col_def_upper:
+
+        # 解析约束（按优先级顺序）
+        if "PRIMARY KEY" in col_def_upper:
             constraints.append("PRIMARY KEY")
             is_primary = True
-        
-        if "NOT NULL" in col_def_upper or "NOTNULL" in col_def_upper:
+
+        if "NOT NULL" in col_def_upper:
             constraints.append("NOT NULL")
-        
+
         if "UNIQUE" in col_def_upper and "PRIMARY KEY" not in col_def_upper:
             constraints.append("UNIQUE")
-        
-        if "AUTO_INCREMENT" in col_def_upper or "AUTOINCREMENT" in col_def_upper or "IDENTITY" in col_def_upper:
+
+        if "AUTO_INCREMENT" in col_def_upper or "AUTOINCREMENT" in col_def_upper:
             constraints.append("AUTO_INCREMENT")
-        
-        if "DEFAULT" in col_def_upper:
-            default_match = re.search(r"DEFAULT\s+([^\s,]+(?:\s+[^,\s]+)?)", col_def, re.IGNORECASE)
-            if default_match:
-                constraints.append(f"DEFAULT {default_match.group(1)}")
-        
+        elif "IDENTITY" in col_def_upper:
+            constraints.append("IDENTITY")
+
+        # 解析 DEFAULT 值
+        default_match = re.search(r"DEFAULT\s+([^\s,]+(?:\s+[^,\s]+)*)", col_def, re.IGNORECASE)
+        if default_match:
+            default_value = default_match.group(1).strip()
+            # 清理多余的空格和截断的文本
+            default_value = re.sub(r'\s+', ' ', default_value)
+            if default_value and not default_value.upper().startswith('NOT'):
+                constraints.append(f"DEFAULT {default_value}")
+
         if "REFERENCES" in col_def_upper:
             is_foreign = True
             constraints.append("FOREIGN KEY")
             ref_match = re.search(r"REFERENCES\s+(\w+)\s*\((\w+)\)", col_def, re.IGNORECASE)
             if ref_match:
                 description = f"引用 {ref_match.group(1)}.{ref_match.group(2)}"
-        
+
         if col_name.lower().endswith("_id") and col_name.lower() != "id":
             is_foreign = True
             if "FOREIGN KEY" not in constraints:
                 constraints.append("FOREIGN KEY")
-        
+
+        # 去重并格式化约束
+        unique_constraints = []
+        seen = set()
+        for c in constraints:
+            c_upper = c.upper()
+            if c_upper not in seen:
+                seen.add(c_upper)
+                unique_constraints.append(c)
+
         return {
             "name": col_name,
             "type": col_type,
-            "constraints": " ".join(dict.fromkeys(constraints)) if constraints else "",
+            "constraints": " ".join(unique_constraints),
             "description": description,
             "is_primary": is_primary,
             "is_foreign": is_foreign,
