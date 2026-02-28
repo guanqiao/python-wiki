@@ -27,6 +27,11 @@ from PyQt6.QtGui import QIcon
 
 import markdown
 
+LANGUAGE_DISPLAY_NAMES = {
+    "zh": "中文",
+    "en": "English",
+}
+
 
 class PreviewPanel(QWidget):
     """文档预览面板"""
@@ -114,36 +119,70 @@ class PreviewPanel(QWidget):
         self.doc_selector.clear()
         self.doc_tree.clear()
 
-        md_files = list(self._wiki_dir.rglob("*.md"))
-        
+        language_dirs = self._detect_language_dirs()
+
         root_item = QTreeWidgetItem(self.doc_tree, ["📁 文档根目录"])
         root_item.setData(0, Qt.ItemDataRole.UserRole, str(self._wiki_dir))
 
+        if language_dirs:
+            for lang_code, lang_dir in language_dirs.items():
+                lang_name = LANGUAGE_DISPLAY_NAMES.get(lang_code, lang_code)
+                lang_item = QTreeWidgetItem(root_item, [f"🌐 {lang_name} ({lang_code})"])
+                lang_item.setData(0, Qt.ItemDataRole.UserRole, "")
+                self._build_tree_for_dir(lang_item, lang_dir, self._wiki_dir)
+                lang_item.setExpanded(True)
+        else:
+            self._build_tree_for_dir(root_item, self._wiki_dir, self._wiki_dir)
+
+        self.doc_tree.expandAll()
+
+    def _detect_language_dirs(self) -> dict[str, Path]:
+        """检测语言子目录"""
+        language_dirs = {}
+        if not self._wiki_dir or not self._wiki_dir.exists():
+            return language_dirs
+
+        for lang_code in LANGUAGE_DISPLAY_NAMES.keys():
+            lang_path = self._wiki_dir / lang_code
+            if lang_path.is_dir():
+                md_files = list(lang_path.rglob("*.md"))
+                if md_files:
+                    language_dirs[lang_code] = lang_path
+
+        return language_dirs
+
+    def _build_tree_for_dir(
+        self,
+        parent_item: QTreeWidgetItem,
+        target_dir: Path,
+        base_dir: Path,
+    ) -> None:
+        """为指定目录构建文档树"""
+        md_files = list(target_dir.rglob("*.md"))
+
         for md_file in sorted(md_files):
-            rel_path = md_file.relative_to(self._wiki_dir)
-            display_name = str(rel_path)
-            
+            rel_path = md_file.relative_to(target_dir)
+            display_name = str(md_file.relative_to(base_dir))
+
             self.doc_selector.addItem(display_name, str(md_file))
-            
+
             parts = rel_path.parts
-            parent_item = root_item
+            current_parent = parent_item
             for i, part in enumerate(parts[:-1]):
                 found = False
-                for j in range(parent_item.childCount()):
-                    child = parent_item.child(j)
+                for j in range(current_parent.childCount()):
+                    child = current_parent.child(j)
                     if child.text(0) == f"📁 {part}":
-                        parent_item = child
+                        current_parent = child
                         found = True
                         break
                 if not found:
-                    new_item = QTreeWidgetItem(parent_item, [f"📁 {part}"])
+                    new_item = QTreeWidgetItem(current_parent, [f"📁 {part}"])
                     new_item.setData(0, Qt.ItemDataRole.UserRole, "")
-                    parent_item = new_item
-            
-            file_item = QTreeWidgetItem(parent_item, [f"📄 {parts[-1]}"])
-            file_item.setData(0, Qt.ItemDataRole.UserRole, str(md_file))
+                    current_parent = new_item
 
-        self.doc_tree.expandAll()
+            file_item = QTreeWidgetItem(current_parent, [f"📄 {parts[-1]}"])
+            file_item.setData(0, Qt.ItemDataRole.UserRole, str(md_file))
 
     def _on_doc_selected(self, doc_name: str) -> None:
         if not doc_name:
@@ -309,9 +348,19 @@ class PreviewPanel(QWidget):
             </style>
             <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
             <script>
-                mermaid.initialize({{ 
-                    startOnLoad: true,
-                    theme: 'default'
+                document.addEventListener('DOMContentLoaded', function() {{
+                    var codeBlocks = document.querySelectorAll('pre code.language-mermaid');
+                    codeBlocks.forEach(function(block) {{
+                        var pre = block.parentElement;
+                        var div = document.createElement('div');
+                        div.className = 'mermaid';
+                        div.textContent = block.textContent;
+                        pre.parentNode.replaceChild(div, pre);
+                    }});
+                    mermaid.initialize({{ 
+                        startOnLoad: true,
+                        theme: 'default'
+                    }});
                 }});
             </script>
         </head>

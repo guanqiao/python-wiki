@@ -52,6 +52,7 @@ class DocGeneratorThread(QThread):
     progress_updated = pyqtSignal(int, str)
     generation_completed = pyqtSignal(bool, str)
     stage_changed = pyqtSignal(str, str)
+    paused_state_changed = pyqtSignal(bool)
     
     def __init__(
         self,
@@ -66,6 +67,8 @@ class DocGeneratorThread(QThread):
         self.llm_config = llm_config
         self.languages = languages or [Language.ZH]
         self._is_cancelled = False
+        self._is_paused = False
+        self._pause_condition = asyncio.Condition()
         logger.debug(f"DocGeneratorThread 初始化: 项目={project.name}, 文档类型={[d.value for d in doc_types]}, 语言={[l.value for l in self.languages]}")
     
     def run(self):
@@ -113,6 +116,17 @@ class DocGeneratorThread(QThread):
                     logger.info("文档生成已取消")
                     break
                 
+                while self._is_paused:
+                    self.paused_state_changed.emit(True)
+                    await asyncio.sleep(0.1)
+                    if self._is_cancelled:
+                        break
+                
+                if self._is_cancelled:
+                    break
+                
+                self.paused_state_changed.emit(False)
+                
                 stage_name = f"{doc_type.value} ({lang_name})"
                 self.stage_changed.emit(stage_name, "running")
                 self.progress_updated.emit(
@@ -144,6 +158,18 @@ class DocGeneratorThread(QThread):
     def cancel(self):
         logger.info("文档生成取消请求")
         self._is_cancelled = True
+        self._is_paused = False
+    
+    def pause(self):
+        logger.info("文档生成暂停请求")
+        self._is_paused = True
+    
+    def resume(self):
+        logger.info("文档生成恢复请求")
+        self._is_paused = False
+    
+    def is_paused(self) -> bool:
+        return self._is_paused
 
 
 class IncrementalUpdateThread(QThread):
@@ -545,6 +571,8 @@ class MainWindow(QMainWindow):
         self.doc_type_panel.generate_all_requested.connect(self._on_generate_all)
         
         self.progress_panel.cancel_requested.connect(self._on_cancel_generation)
+        self.progress_panel.pause_requested.connect(self._on_pause_generation)
+        self.progress_panel.resume_requested.connect(self._on_resume_generation)
         
         self.insights_panel.analyze_requested.connect(self._on_analyze)
         self.knowledge_panel.extract_requested.connect(self._on_extract_knowledge)
@@ -787,6 +815,7 @@ class MainWindow(QMainWindow):
         self._generator_thread.progress_updated.connect(self._on_progress_update)
         self._generator_thread.generation_completed.connect(self._on_generation_completed)
         self._generator_thread.stage_changed.connect(self._on_stage_changed)
+        self._generator_thread.paused_state_changed.connect(self._on_paused_state_changed)
         
         self.generation_started.emit()
         self.statusbar.showMessage("正在生成文档...")
@@ -799,7 +828,22 @@ class MainWindow(QMainWindow):
     def _on_cancel_generation(self) -> None:
         if self._generator_thread and self._generator_thread.isRunning():
             self._generator_thread.cancel()
-            self.progress_panel.add_log("WARN", "正在取消生成...")
+            self.progress_panel.add_log("WARN", "正在终止生成...")
+
+    def _on_pause_generation(self) -> None:
+        if self._generator_thread and self._generator_thread.isRunning():
+            self._generator_thread.pause()
+            self.progress_panel.add_log("INFO", "生成已暂停")
+            self.statusbar.showMessage("文档生成已暂停")
+
+    def _on_resume_generation(self) -> None:
+        if self._generator_thread and self._generator_thread.isRunning():
+            self._generator_thread.resume()
+            self.progress_panel.add_log("INFO", "生成已恢复")
+            self.statusbar.showMessage("正在生成文档...")
+
+    def _on_paused_state_changed(self, paused: bool) -> None:
+        self.progress_panel.set_paused_state(paused)
 
     def _on_generation_completed(self, success: bool, message: str) -> None:
         if success:

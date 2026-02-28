@@ -27,7 +27,6 @@ from pywiki.generators.docs.test_coverage_generator import TestCoverageGenerator
 from pywiki.generators.docs.code_quality_generator import CodeQualityGenerator
 from pywiki.generators.docs.technical_design_spec_generator import TechnicalDesignSpecGenerator
 from pywiki.config.models import Language
-from pywiki.wiki.structure import WikiStructureManager, WikiStructureConfig
 from pywiki.monitor.logger import logger
 
 
@@ -214,7 +213,7 @@ class DocumentationAgent(BaseAgent):
             doc_result = await generator.generate(doc_context)
 
             if doc_result.success:
-                file_path = output_path / doc_result.file_path.name
+                file_path = doc_context.get_output_path(doc_type)
                 
                 if incremental and self._cache_enabled:
                     if not doc_context.needs_regeneration(doc_type, doc_result.content):
@@ -250,17 +249,7 @@ class DocumentationAgent(BaseAgent):
         """并发生成所有文档"""
         result = DocGenerationResult(success=True)
         
-        structure_manager = WikiStructureManager(WikiStructureConfig(
-            base_dir=str(output_dir),
-            multi_language=True,
-            default_language=language,
-        ))
-        
-        output_path = structure_manager.get_wiki_root(
-            context.project_path or Path("."),
-            language
-        )
-        
+        output_path = output_dir / language.value
         output_path.mkdir(parents=True, exist_ok=True)
 
         logger.debug(f"文档输出路径: {output_path}")
@@ -348,17 +337,7 @@ class DocumentationAgent(BaseAgent):
             return AgentResult.error_result(f"未知的文档类型: {doc_type}")
 
         output_dir = context.metadata.get("output_dir", Path(".python-wiki/repowiki"))
-        
-        structure_manager = WikiStructureManager(WikiStructureConfig(
-            base_dir=str(output_dir),
-            multi_language=True,
-            default_language=language,
-        ))
-        
-        output_path = structure_manager.get_wiki_root(
-            context.project_path or Path("."),
-            language
-        )
+        output_path = output_dir / language.value
         output_path.mkdir(parents=True, exist_ok=True)
 
         doc_context = DocGeneratorContext(
@@ -375,7 +354,7 @@ class DocumentationAgent(BaseAgent):
             doc_result = await generator.generate(doc_context)
 
             if doc_result.success:
-                file_path = output_path / doc_result.file_path.name
+                file_path = doc_context.get_output_path(doc_type)
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(doc_result.content, encoding="utf-8")
                 

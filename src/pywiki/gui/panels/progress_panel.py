@@ -89,11 +89,14 @@ class ProgressPanel(QWidget):
     """Wiki 生成进度监控面板"""
 
     cancel_requested = pyqtSignal()
+    pause_requested = pyqtSignal()
+    resume_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._start_time: Optional[datetime] = None
         self._doc_type_widgets: dict[DocType, DocTypeStatusWidget] = {}
+        self._is_paused: bool = False
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -123,8 +126,24 @@ class ProgressPanel(QWidget):
         """)
         progress_header.addWidget(self.overall_progress, 1)
         
-        self.cancel_button = QPushButton("取消")
-        self.cancel_button.setStyleSheet("""
+        self.pause_button = QPushButton("暂停")
+        self.pause_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ffc107;
+                color: #212529;
+                padding: 4px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #e0a800;
+            }
+        """)
+        self.pause_button.clicked.connect(self._on_pause_clicked)
+        self.pause_button.setVisible(False)
+        progress_header.addWidget(self.pause_button)
+        
+        self.terminate_button = QPushButton("终止")
+        self.terminate_button.setStyleSheet("""
             QPushButton {
                 background-color: #dc3545;
                 color: white;
@@ -135,9 +154,9 @@ class ProgressPanel(QWidget):
                 background-color: #c82333;
             }
         """)
-        self.cancel_button.clicked.connect(self.cancel_requested.emit)
-        self.cancel_button.setVisible(False)
-        progress_header.addWidget(self.cancel_button)
+        self.terminate_button.clicked.connect(self.cancel_requested.emit)
+        self.terminate_button.setVisible(False)
+        progress_header.addWidget(self.terminate_button)
         
         progress_layout.addLayout(progress_header)
 
@@ -217,16 +236,143 @@ class ProgressPanel(QWidget):
 
     def start_generation(self) -> None:
         self._start_time = datetime.now()
+        self._is_paused = False
         self.overall_progress.setValue(0)
         self.status_label.setText("正在生成...")
         self.log_text.clear()
         self._timer.start(1000)
-        self.cancel_button.setVisible(True)
+        self.pause_button.setVisible(True)
+        self.pause_button.setText("暂停")
+        self.pause_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ffc107;
+                color: #212529;
+                padding: 4px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #e0a800;
+            }
+        """)
+        self.terminate_button.setVisible(True)
 
         for doc_type in self._doc_type_widgets:
             self._doc_type_widgets[doc_type].set_status("pending")
 
         self.add_log("INFO", "开始生成 Wiki...")
+
+    def _on_pause_clicked(self) -> None:
+        if self._is_paused:
+            self._is_paused = False
+            self.pause_button.setText("暂停")
+            self.pause_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #ffc107;
+                    color: #212529;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #e0a800;
+                }
+            """)
+            self.status_label.setText("正在生成...")
+            self.overall_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #e9ecef;
+                }
+                QProgressBar::chunk {
+                    background-color: #28a745;
+                    border-radius: 3px;
+                }
+            """)
+            self.resume_requested.emit()
+        else:
+            self._is_paused = True
+            self.pause_button.setText("继续")
+            self.pause_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #218838;
+                }
+            """)
+            self.status_label.setText("已暂停")
+            self.overall_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #e9ecef;
+                }
+                QProgressBar::chunk {
+                    background-color: #ffc107;
+                    border-radius: 3px;
+                }
+            """)
+            self.pause_requested.emit()
+    
+    def set_paused_state(self, paused: bool) -> None:
+        self._is_paused = paused
+        if paused:
+            self.pause_button.setText("继续")
+            self.pause_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #218838;
+                }
+            """)
+            self.status_label.setText("已暂停")
+            self.overall_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #e9ecef;
+                }
+                QProgressBar::chunk {
+                    background-color: #ffc107;
+                    border-radius: 3px;
+                }
+            """)
+        else:
+            self.pause_button.setText("暂停")
+            self.pause_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #ffc107;
+                    color: #212529;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #e0a800;
+                }
+            """)
+            self.status_label.setText("正在生成...")
+            self.overall_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #e9ecef;
+                }
+                QProgressBar::chunk {
+                    background-color: #28a745;
+                    border-radius: 3px;
+                }
+            """)
 
     def update_progress(self, progress: int, message: str) -> None:
         self.overall_progress.setValue(progress)
@@ -259,10 +405,24 @@ class ProgressPanel(QWidget):
 
     def complete_generation(self) -> None:
         self._timer.stop()
+        self._is_paused = False
         self.overall_progress.setValue(100)
         self.status_label.setText("✅ 生成完成")
         self.file_label.setText("")
-        self.cancel_button.setVisible(False)
+        self.pause_button.setVisible(False)
+        self.terminate_button.setVisible(False)
+        self.overall_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                text-align: center;
+                background-color: #e9ecef;
+            }
+            QProgressBar::chunk {
+                background-color: #28a745;
+                border-radius: 3px;
+            }
+        """)
 
         for doc_type in self._doc_type_widgets:
             widget = self._doc_type_widgets[doc_type]
@@ -273,8 +433,22 @@ class ProgressPanel(QWidget):
 
     def error_generation(self, error: str) -> None:
         self._timer.stop()
+        self._is_paused = False
         self.status_label.setText("❌ 生成失败")
-        self.cancel_button.setVisible(False)
+        self.pause_button.setVisible(False)
+        self.terminate_button.setVisible(False)
+        self.overall_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                text-align: center;
+                background-color: #e9ecef;
+            }
+            QProgressBar::chunk {
+                background-color: #28a745;
+                border-radius: 3px;
+            }
+        """)
         self.add_log("ERROR", error)
 
     def _update_time(self) -> None:
