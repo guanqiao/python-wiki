@@ -16,6 +16,17 @@ from pywiki.agents import (
 )
 from pywiki.llm.client import LLMClient
 from pywiki.memory.memory_manager import MemoryManager
+from pywiki.config.models import LLMConfig
+
+
+def create_example_llm_client():
+    """创建示例 LLM 客户端"""
+    config = LLMConfig(
+        endpoint="https://api.openai.com/v1",
+        api_key="your-api-key",
+        model="gpt-4",
+    )
+    return LLMClient.from_config(config)
 
 
 async def example_implicit_knowledge_agent():
@@ -24,11 +35,7 @@ async def example_implicit_knowledge_agent():
     print("示例 1: 隐形知识挖掘 Agent")
     print("=" * 60)
     
-    llm_client = LLMClient(
-        endpoint="https://api.openai.com/v1",
-        api_key="your-api-key",
-        model="gpt-4",
-    )
+    llm_client = create_example_llm_client()
     
     agent = ImplicitKnowledgeAgent(llm_client=llm_client)
     
@@ -90,11 +97,7 @@ async def example_architecture_agent():
     print("示例 3: 架构洞见 Agent")
     print("=" * 60)
     
-    llm_client = LLMClient(
-        endpoint="https://api.openai.com/v1",
-        api_key="your-api-key",
-        model="gpt-4",
-    )
+    llm_client = create_example_llm_client()
     
     agent = ArchitectureAgent(llm_client=llm_client)
     
@@ -171,11 +174,7 @@ async def example_orchestrator():
     print("示例 5: Agent 协调器")
     print("=" * 60)
     
-    llm_client = LLMClient(
-        endpoint="https://api.openai.com/v1",
-        api_key="your-api-key",
-        model="gpt-4",
-    )
+    llm_client = create_example_llm_client()
     
     memory_manager = MemoryManager()
     memory_manager.set_current_project("my_project", Path("./my_project"))
@@ -229,11 +228,7 @@ async def example_workflow():
     print("示例 6: 工作流编排")
     print("=" * 60)
     
-    llm_client = LLMClient(
-        endpoint="https://api.openai.com/v1",
-        api_key="your-api-key",
-        model="gpt-4",
-    )
+    llm_client = create_example_llm_client()
     
     orchestrator = AgentOrchestrator()
     

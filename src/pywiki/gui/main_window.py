@@ -32,7 +32,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl, QMimeData
 from PyQt6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
 
 from pywiki.config.settings import Settings
-from pywiki.config.models import ProjectConfig, LLMConfig, WikiConfig
+from pywiki.config.models import ProjectConfig, LLMConfig, WikiConfig, Language
 from pywiki.gui.panels.project_panel import ProjectPanel
 from pywiki.gui.panels.preview_panel import PreviewPanel
 from pywiki.gui.panels.progress_panel import ProgressPanel
@@ -58,13 +58,15 @@ class DocGeneratorThread(QThread):
         project: ProjectConfig,
         doc_types: list[DocType],
         llm_config: Optional[LLMConfig] = None,
+        languages: list[Language] = None,
     ):
         super().__init__()
         self.project = project
         self.doc_types = doc_types
         self.llm_config = llm_config
+        self.languages = languages or [Language.ZH]
         self._is_cancelled = False
-        logger.debug(f"DocGeneratorThread 初始化: 项目={project.name}, 文档类型={[d.value for d in doc_types]}")
+        logger.debug(f"DocGeneratorThread 初始化: 项目={project.name}, 文档类型={[d.value for d in doc_types]}, 语言={[l.value for l in self.languages]}")
     
     def run(self):
         logger.info(f"文档生成线程开始运行: {self.project.name}")
@@ -81,11 +83,7 @@ class DocGeneratorThread(QThread):
         llm_client = None
         if self.llm_config:
             try:
-                llm_client = LLMClient(
-                    api_key=self.llm_config.api_key.get_secret_value(),
-                    endpoint=self.llm_config.endpoint,
-                    model=self.llm_config.model,
-                )
+                llm_client = LLMClient.from_config(self.llm_config)
                 logger.info(f"LLM 客户端初始化成功: model={self.llm_config.model}")
             except Exception as e:
                 logger.log_exception("LLM 客户端初始化失败", e)
@@ -103,30 +101,42 @@ class DocGeneratorThread(QThread):
             progress_callback=progress_callback,
         )
         
-        total = len(self.doc_types)
-        for i, doc_type in enumerate(self.doc_types):
+        total = len(self.doc_types) * len(self.languages)
+        current = 0
+        
+        for language in self.languages:
+            lang_name = "中文" if language == Language.ZH else "English"
+            self.progress_updated.emit(0, f"开始生成{lang_name}文档...")
+            
+            for doc_type in self.doc_types:
+                if self._is_cancelled:
+                    logger.info("文档生成已取消")
+                    break
+                
+                stage_name = f"{doc_type.value} ({lang_name})"
+                self.stage_changed.emit(stage_name, "running")
+                self.progress_updated.emit(
+                    int((current / total) * 100),
+                    f"[{lang_name}] 正在生成: {doc_type.value}"
+                )
+                logger.info(f"开始生成文档: {doc_type.value}, 语言: {language.value}")
+                
+                try:
+                    result = await manager.generate_doc(doc_type, language=language)
+                    if result.get("success"):
+                        self.stage_changed.emit(stage_name, "completed")
+                        logger.info(f"文档生成成功: {doc_type.value} ({lang_name})")
+                    else:
+                        self.stage_changed.emit(stage_name, "error")
+                        logger.error(f"文档生成失败: {doc_type.value} ({lang_name}) - {result.get('message', '未知错误')}")
+                except Exception as e:
+                    logger.log_exception(f"文档生成异常: {doc_type.value} ({lang_name})", e)
+                    self.stage_changed.emit(stage_name, "error")
+                
+                current += 1
+            
             if self._is_cancelled:
-                logger.info("文档生成已取消")
                 break
-            
-            self.stage_changed.emit(doc_type.value, "running")
-            self.progress_updated.emit(
-                int((i / total) * 100),
-                f"正在生成: {doc_type.value}"
-            )
-            logger.info(f"开始生成文档: {doc_type.value}")
-            
-            try:
-                result = await manager.generate_doc(doc_type)
-                if result.get("success"):
-                    self.stage_changed.emit(doc_type.value, "completed")
-                    logger.info(f"文档生成成功: {doc_type.value}")
-                else:
-                    self.stage_changed.emit(doc_type.value, "error")
-                    logger.error(f"文档生成失败: {doc_type.value} - {result.get('message', '未知错误')}")
-            except Exception as e:
-                logger.log_exception(f"文档生成异常: {doc_type.value}", e)
-                self.stage_changed.emit(doc_type.value, "error")
         
         logger.info(f"文档生成完成: {self.project.name}")
         self.generation_completed.emit(True, "文档生成完成")
@@ -157,11 +167,7 @@ class IncrementalUpdateThread(QThread):
             
             llm_client = None
             if self.llm_config:
-                llm_client = LLMClient(
-                    api_key=self.llm_config.api_key.get_secret_value(),
-                    endpoint=self.llm_config.endpoint,
-                    model=self.llm_config.model,
-                )
+                llm_client = LLMClient.from_config(self.llm_config)
             
             wiki_manager = WikiManager(
                 project=self.project,
@@ -767,13 +773,15 @@ class MainWindow(QMainWindow):
     def _start_generation(self, doc_types: list[DocType]) -> None:
         config = self.settings.load_config()
         llm_config = config.default_llm
+        languages = self.doc_type_panel.get_selected_languages()
         
-        logger.info(f"开始生成文档: 类型={[d.value for d in doc_types]}, LLM配置={'已设置' if llm_config else '未设置'}")
+        logger.info(f"开始生成文档: 类型={[d.value for d in doc_types]}, 语言={[l.value for l in languages]}, LLM配置={'已设置' if llm_config else '未设置'}")
         
         self._generator_thread = DocGeneratorThread(
             project=self._current_project,
             doc_types=doc_types,
             llm_config=llm_config,
+            languages=languages,
         )
         
         self._generator_thread.progress_updated.connect(self._on_progress_update)
@@ -783,7 +791,8 @@ class MainWindow(QMainWindow):
         self.generation_started.emit()
         self.statusbar.showMessage("正在生成文档...")
         self.progress_panel.start_generation()
-        self.progress_panel.add_log("INFO", f"开始生成 {len(doc_types)} 种文档类型")
+        lang_names = "、".join(["中文" if l == Language.ZH else "English" for l in languages])
+        self.progress_panel.add_log("INFO", f"开始生成 {len(doc_types)} 种文档类型（{lang_names}）")
         
         self._generator_thread.start()
 

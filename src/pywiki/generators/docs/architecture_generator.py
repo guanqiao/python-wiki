@@ -34,7 +34,9 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     async def generate(self, context: DocGeneratorContext) -> DocGeneratorResult:
         """生成架构文档"""
         try:
-            arch_data = await self._analyze_architecture(context)
+            project_language = context.project_language or context.detect_project_language()
+            
+            arch_data = await self._analyze_architecture(context, project_language)
             
             if context.metadata.get("llm_client"):
                 enhanced_data = await self._enhance_with_llm(
@@ -74,7 +76,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 message=f"生成失败: {str(e)}",
             )
 
-    async def _analyze_architecture(self, context: DocGeneratorContext) -> dict[str, Any]:
+    async def _analyze_architecture(self, context: DocGeneratorContext, project_language: str) -> dict[str, Any]:
         """分析架构"""
         arch_data = {
             "c4_context": "",
@@ -128,7 +130,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         arch_data["c4_container"] = self._generate_c4_container(context)
         arch_data["c4_component"] = self._generate_c4_component(context)
         arch_data["dependency_graph"] = self._generate_dependency_graph(context)
-        arch_data["layers"] = self._analyze_layers(context)
+        arch_data["layers"] = self._analyze_layers(context, project_language)
         arch_data["quality_metrics"] = self._calculate_quality_metrics(context)
         arch_data["circular_dependencies"] = self._detect_circular_dependencies(context)
         arch_data["hot_spots"] = self._detect_hot_spots(context)
@@ -277,7 +279,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
 
         return "\n".join(lines)
 
-    def _analyze_layers(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
+    def _analyze_layers(self, context: DocGeneratorContext, project_language: str) -> list[dict[str, Any]]:
         """分析分层架构"""
         layers = []
 
@@ -304,6 +306,67 @@ class ArchitectureDocGenerator(BaseDocGenerator):
             },
         }
 
+        java_layer_patterns = {
+            "表现层": {
+                "keywords": ["controller", "restcontroller", "handler", "endpoint", "api", "web", "servlet", "filter"],
+                "annotations": ["@Controller", "@RestController", "@RequestMapping", "@GetMapping", "@PostMapping"],
+                "description": "处理 HTTP 请求，负责 API 端点和 Web 界面",
+            },
+            "业务层": {
+                "keywords": ["service", "serviceimpl", "business", "domain", "usecase", "manager", "processor", "facade"],
+                "annotations": ["@Service", "@Transactional", "@Component"],
+                "description": "实现核心业务逻辑和业务规则",
+            },
+            "数据层": {
+                "keywords": ["repository", "dao", "mapper", "entity", "model", "persistence", "jpa", "crud"],
+                "annotations": ["@Repository", "@Entity", "@Table", "@Mapper"],
+                "description": "负责数据持久化和数据访问",
+            },
+            "基础设施层": {
+                "keywords": ["config", "configuration", "util", "common", "helper", "exception", "aspect", "interceptor"],
+                "annotations": ["@Configuration", "@Component", "@Aspect", "@Bean"],
+                "description": "提供技术支持和基础设施服务",
+            },
+            "DTO层": {
+                "keywords": ["dto", "vo", "request", "response", "form", "command", "query"],
+                "annotations": [],
+                "description": "数据传输对象，用于层间数据传递",
+            },
+        }
+
+        typescript_layer_patterns = {
+            "表现层": {
+                "keywords": ["controller", "handler", "endpoint", "api", "route", "resolver", "gateway"],
+                "decorators": ["@Controller", "@Get", "@Post", "@Put", "@Delete", "@Patch", "@Resolver"],
+                "description": "处理 HTTP 请求和 GraphQL 解析器",
+            },
+            "业务层": {
+                "keywords": ["service", "business", "domain", "usecase", "manager", "processor", "provider"],
+                "decorators": ["@Service", "@Injectable", "@Provider"],
+                "description": "实现核心业务逻辑和业务规则",
+            },
+            "数据层": {
+                "keywords": ["repository", "dao", "mapper", "entity", "model", "schema", "prisma", "typeorm"],
+                "decorators": ["@Entity", "@Repository", "@EntityRepository"],
+                "description": "负责数据持久化和数据访问",
+            },
+            "基础设施层": {
+                "keywords": ["config", "module", "middleware", "guard", "interceptor", "filter", "pipe", "util", "common"],
+                "decorators": ["@Module", "@Middleware", "@UseGuards", "@UseInterceptors", "@UsePipes"],
+                "description": "提供技术支持和基础设施服务",
+            },
+            "DTO层": {
+                "keywords": ["dto", "vo", "input", "output", "request", "response", "interface", "type"],
+                "decorators": [],
+                "description": "数据传输对象和类型定义",
+            },
+        }
+
+        if project_language == "java":
+            layer_patterns = java_layer_patterns
+        elif project_language == "typescript":
+            layer_patterns = typescript_layer_patterns
+
         if not context.parse_result or not context.parse_result.modules:
             return layers
 
@@ -313,19 +376,55 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         for module in context.parse_result.modules:
             module_lower = module.name.lower()
             
+            matched = False
             for layer_name, layer_info in layer_patterns.items():
                 if any(kw in module_lower for kw in layer_info["keywords"]):
                     layer_modules[layer_name].append(module)
                     assigned_modules.add(module.name)
+                    matched = True
                     break
+
+            if not matched:
+                for cls in (module.classes or []):
+                    annotations = getattr(cls, 'annotations', []) or getattr(cls, 'decorators', [])
+                    class_lower = cls.name.lower()
+                    
+                    for layer_name, layer_info in layer_patterns.items():
+                        layer_keywords = layer_info.get("keywords", [])
+                        layer_annotations = layer_info.get("annotations", []) or layer_info.get("decorators", [])
+                        
+                        if any(kw in class_lower for kw in layer_keywords):
+                            layer_modules[layer_name].append(module)
+                            assigned_modules.add(module.name)
+                            matched = True
+                            break
+                        
+                        for annotation in annotations:
+                            if any(ann in annotation for ann in layer_annotations):
+                                layer_modules[layer_name].append(module)
+                                assigned_modules.add(module.name)
+                                matched = True
+                                break
+                        
+                        if matched:
+                            break
+                    
+                    if matched:
+                        break
 
         for module in context.parse_result.modules:
             if module.name not in assigned_modules:
                 if module.classes:
-                    has_entity = any("Model" in c.name or "Entity" in c.name for c in module.classes)
+                    has_entity = any(
+                        "Model" in c.name or "Entity" in c.name or "DTO" in c.name or "Dto" in c.name
+                        for c in module.classes
+                    )
                     has_service = any("Service" in c.name for c in module.classes)
+                    has_controller = any("Controller" in c.name for c in module.classes)
                     
-                    if has_entity:
+                    if has_controller:
+                        layer_modules["表现层"].append(module)
+                    elif has_entity:
                         layer_modules["数据层"].append(module)
                     elif has_service:
                         layer_modules["业务层"].append(module)

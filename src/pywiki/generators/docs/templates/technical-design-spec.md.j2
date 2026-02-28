@@ -1,0 +1,539 @@
+# {{ project_name }} {{ labels['technical_design_spec'] }}
+
+**{{ labels['version'] }}**: 1.0  
+**{{ labels['updated_at'] }}**: {{ labels['updated_at'] }}  
+**{{ labels['document_language'] if labels.get('document_language') else 'Document Language' }}**: {{ '中文' if language == 'zh' else 'English' }}
+
+---
+
+## {{ labels['document_info'] if labels.get('document_info') else 'Document Information' }}
+
+- **{{ labels['project_name'] if labels.get('project_name') else 'Project Name' }}**: {{ project_name }}
+- **{{ labels['document_type'] if labels.get('document_type') else 'Document Type' }}**: {{ labels['technical_design_spec'] }}
+- **{{ labels['generation_tool'] if labels.get('generation_tool') else 'Generation Tool' }}**: Python Wiki
+
+---
+
+## {{ labels['table_of_contents'] }}
+
+1. [{{ labels['executive_summary'] if labels.get('executive_summary') else 'Executive Summary' }}](#{{ labels['executive_summary_link'] if labels.get('executive_summary_link') else 'executive-summary' }})
+2. [{{ labels['project_overview'] if labels.get('project_overview') else 'Project Overview' }}](#{{ labels['project_overview_link'] if labels.get('project_overview_link') else 'project-overview' }})
+3. [{{ labels['system_architecture'] if labels.get('system_architecture') else 'System Architecture' }}](#{{ labels['system_architecture_link'] if labels.get('system_architecture_link') else 'system-architecture' }})
+4. [{{ labels['tech_stack_selection'] if labels.get('tech_stack_selection') else 'Tech Stack Selection' }}](#{{ labels['tech_stack_link'] if labels.get('tech_stack_link') else 'tech-stack' }})
+5. [{{ labels['api_design'] if labels.get('api_design') else 'API Design' }}](#{{ labels['api_design_link'] if labels.get('api_design_link') else 'api-design' }})
+6. [{{ labels['data_model_design'] if labels.get('data_model_design') else 'Data Model Design' }}](#{{ labels['data_model_link'] if labels.get('data_model_link') else 'data-model' }})
+7. [{{ labels['dependency_management'] if labels.get('dependency_management') else 'Dependency Management' }}](#{{ labels['dependencies_link'] if labels.get('dependencies_link') else 'dependencies' }})
+8. [{{ labels['config_management'] if labels.get('config_management') else 'Configuration Management' }}](#{{ labels['configuration_link'] if labels.get('configuration_link') else 'configuration' }})
+9. [{{ labels['development_guide'] if labels.get('development_guide') else 'Development Guide' }}](#{{ labels['development_link'] if labels.get('development_link') else 'development' }})
+10. [{{ labels['design_decisions'] }}](#{{ labels['tsd_link'] if labels.get('tsd_link') else 'tsd' }})
+11. [{{ labels['code_analysis'] if labels.get('code_analysis') else 'Code Analysis' }}](#{{ labels['code_analysis_link'] if labels.get('code_analysis_link') else 'code-analysis' }})
+12. [{{ labels['security_design'] if labels.get('security_design') else 'Security Design' }}](#{{ labels['security_link'] if labels.get('security_link') else 'security' }})
+13. [{{ labels['performance_design'] if labels.get('performance_design') else 'Performance Design' }}](#{{ labels['performance_link'] if labels.get('performance_link') else 'performance' }})
+14. [{{ labels['deployment_architecture'] if labels.get('deployment_architecture') else 'Deployment Architecture' }}](#{{ labels['deployment_link'] if labels.get('deployment_link') else 'deployment' }})
+15. [{{ labels['appendix'] if labels.get('appendix') else 'Appendix' }}](#{{ labels['appendix_link'] if labels.get('appendix_link') else 'appendix' }})
+
+---
+
+## {{ labels['executive_summary'] if labels.get('executive_summary') else 'Executive Summary' }}
+
+{% if description %}
+{{ description }}
+{% endif %}
+
+{% if spec_data.get('executive_summary') %}
+### {{ labels['overview'] }}
+
+{{ spec_data.executive_summary }}
+
+{% endif %}
+
+{% if spec_data.get('key_technical_decisions') %}
+### {{ labels['key_decisions'] if labels.get('key_decisions') else 'Key Technical Decisions' }}
+
+{% for decision in spec_data.key_technical_decisions %}
+- {{ decision }}
+{% endfor %}
+
+{% endif %}
+
+{% if spec_data.get('risk_assessment') %}
+### {{ labels['risk_assessment'] if labels.get('risk_assessment') else 'Risk Assessment' }}
+
+{% for risk in spec_data.risk_assessment %}
+- {{ risk }}
+{% endfor %}
+
+{% endif %}
+
+{% if spec_data.get('improvement_roadmap') %}
+### {{ labels['improvement_roadmap'] if labels.get('improvement_roadmap') else 'Improvement Roadmap' }}
+
+{% for item in spec_data.improvement_roadmap %}
+- {{ item }}
+{% endfor %}
+
+{% endif %}
+
+{% if spec_data.get('compliance_notes') %}
+### {{ labels['compliance_notes'] if labels.get('compliance_notes') else 'Compliance Notes' }}
+
+{{ spec_data.compliance_notes }}
+
+{% endif %}
+
+---
+
+## {{ labels['project_overview'] if labels.get('project_overview') else 'Project Overview' }}
+
+{% if overview.exists %}
+
+### {{ labels['project_intro'] if labels.get('project_intro') else 'Project Introduction' }}
+
+{{ overview.description }}
+
+### {{ labels['features'] }}
+
+{% for feature in overview.features %}
+- {{ feature }}
+{% endfor %}
+
+### {{ labels['module_list'] if labels.get('module_list') else 'Module List' }}
+
+{% for module in overview.modules %}
+- {{ module }}
+{% endfor %}
+
+### {{ labels['code_statistics'] if labels.get('code_statistics') else 'Code Statistics' }}
+
+{% if overview.code_stats %}
+- **{{ labels['module_count'] if labels.get('module_count') else 'Modules' }}**: {{ overview.code_stats.get('total_modules', 0) }}
+- **{{ labels['class_count'] if labels.get('class_count') else 'Classes' }}**: {{ overview.code_stats.get('total_classes', 0) }}
+- **{{ labels['function_count'] if labels.get('function_count') else 'Functions' }}**: {{ overview.code_stats.get('total_functions', 0) }}
+- **{{ labels['method_count'] if labels.get('method_count') else 'Methods' }}**: {{ overview.code_stats.get('total_methods', 0) }}
+{% endif %}
+
+{% else %}
+> {{ labels['overview_not_found'] if labels.get('overview_not_found') else 'Overview document not generated, please generate overview document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['system_architecture'] if labels.get('system_architecture') else 'System Architecture' }}
+
+{% if architecture.exists %}
+
+### {{ labels['architecture_desc'] if labels.get('architecture_desc') else 'Architecture Description' }}
+
+{{ architecture.description }}
+
+### {{ labels['architecture_layers'] if labels.get('architecture_layers') else 'Architecture Layers' }}
+
+{% for layer in architecture.layers %}
+#### {{ layer.name }}
+
+{{ layer.description }}
+
+{% endfor %}
+
+### {{ labels['architecture_diagrams'] if labels.get('architecture_diagrams') else 'Architecture Diagrams' }}
+
+{% for diagram in architecture.diagrams %}
+```mermaid
+{{ diagram }}
+```
+
+{% endfor %}
+
+### {{ labels['quality_metrics'] if labels.get('quality_metrics') else 'Quality Metrics' }}
+
+{% if architecture.quality_metrics %}
+{% for metric_name, metric_value in architecture.quality_metrics.items() %}
+- **{{ metric_name }}**: {{ metric_value }}
+{% endfor %}
+{% endif %}
+
+### {{ labels['recommendations'] if labels.get('recommendations') else 'Recommendations' }}
+
+{% for recommendation in architecture.recommendations %}
+- {{ recommendation }}
+{% endfor %}
+
+{% else %}
+> {{ labels['architecture_not_found'] if labels.get('architecture_not_found') else 'Architecture document not generated, please generate architecture document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['tech_stack_selection'] if labels.get('tech_stack_selection') else 'Tech Stack Selection' }}
+
+### {{ labels['primary_language'] if labels.get('primary_language') else 'Primary Programming Language' }}
+
+{{ tech_stack.primary_language|title }}
+
+### {{ labels['tech_categories'] if labels.get('tech_categories') else 'Technology Categories' }}
+
+{% if tech_stack.categories %}
+{% for category, technologies in tech_stack.categories.items() %}
+#### {{ category }}
+
+{% for tech in technologies %}
+- {{ tech }}
+{% endfor %}
+
+{% endfor %}
+{% else %}
+> {{ labels['tech_stack_not_found'] if labels.get('tech_stack_not_found') else 'Tech stack document not generated, unable to display detailed technology categories.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['api_design'] if labels.get('api_design') else 'API Design' }}
+
+{% if api_design.exists %}
+
+### {{ labels['api_overview'] if labels.get('api_overview') else 'API Overview' }}
+
+{{ api_design.description }}
+
+### {{ labels['api_endpoints'] if labels.get('api_endpoints') else 'API Endpoints' }}
+
+{% for endpoint in api_design.endpoints %}
+- **{{ endpoint.method }}** `{{ endpoint.path }}`
+  - {{ labels['handler'] if labels.get('handler') else 'Handler' }}: {{ endpoint.handler }}
+  {% if endpoint.description %}
+  - {{ labels['description'] }}: {{ endpoint.description }}
+  {% endif %}
+
+{% endfor %}
+
+### {{ labels['api_modules'] if labels.get('api_modules') else 'API Modules' }}
+
+{% for module in api_design.modules %}
+#### {{ module.name }}
+
+{{ module.description }}
+
+{% endfor %}
+
+{% else %}
+> {{ labels['api_not_found'] if labels.get('api_not_found') else 'API document not generated, please generate API document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['data_model_design'] if labels.get('data_model_design') else 'Data Model Design' }}
+
+{% if data_model.exists %}
+
+### {{ labels['data_model_overview'] if labels.get('data_model_overview') else 'Data Model Overview' }}
+
+{{ data_model.description }}
+
+### {{ labels['tables_entities'] if labels.get('tables_entities') else 'Tables/Entities' }}
+
+{% for table in data_model.tables %}
+- **{{ table.name }}**
+
+{% endfor %}
+
+### {{ labels['er_diagram'] if labels.get('er_diagram') else 'ER Diagram' }}
+
+{% if data_model.er_diagram %}
+```mermaid
+{{ data_model.er_diagram }}
+```
+{% endif %}
+
+{% else %}
+> {{ labels['database_not_found'] if labels.get('database_not_found') else 'Database document not generated, please generate database document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['dependency_management'] if labels.get('dependency_management') else 'Dependency Management' }}
+
+{% if dependencies.exists %}
+
+### {{ labels['dependency_overview'] if labels.get('dependency_overview') else 'Dependency Overview' }}
+
+{{ dependencies.description }}
+
+### {{ labels['external_dependencies'] }}
+
+{% for dep in dependencies.external %}
+- {{ dep.name }}
+
+{% endfor %}
+
+{% else %}
+> {{ labels['dependencies_not_found'] if labels.get('dependencies_not_found') else 'Dependencies document not generated, please generate dependencies document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['config_management'] if labels.get('config_management') else 'Configuration Management' }}
+
+{% if configuration.exists %}
+
+### {{ labels['config_overview'] if labels.get('config_overview') else 'Configuration Overview' }}
+
+{{ configuration.description }}
+
+### {{ labels['environment_variables'] if labels.get('environment_variables') else 'Environment Variables' }}
+
+{% for env_var in configuration.environment_variables %}
+- **{{ env_var.name }}**
+  {% if env_var.description %}
+  - {{ labels['description'] }}: {{ env_var.description }}
+  {% endif %}
+
+{% endfor %}
+
+{% else %}
+> {{ labels['configuration_not_found'] if labels.get('configuration_not_found') else 'Configuration document not generated, please generate configuration document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['development_guide'] if labels.get('development_guide') else 'Development Guide' }}
+
+{% if development.exists %}
+
+### {{ labels['development_overview'] if labels.get('development_overview') else 'Development Overview' }}
+
+{{ development.description }}
+
+### {{ labels['prerequisites'] if labels.get('prerequisites') else 'Prerequisites' }}
+
+{% for prereq in development.prerequisites %}
+- {{ prereq }}
+{% endfor %}
+
+{% else %}
+> {{ labels['development_not_found'] if labels.get('development_not_found') else 'Development document not generated, please generate development document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['design_decisions'] }}
+
+{% if design_decisions.exists %}
+
+### {{ labels['design_decisions_overview'] if labels.get('design_decisions_overview') else 'Design Decisions Overview' }}
+
+{{ design_decisions.description }}
+
+### {{ labels['design_decisions_list'] if labels.get('design_decisions_list') else 'Design Decisions List' }}
+
+{% for decision in design_decisions.decisions %}
+#### {{ decision.title }}
+
+{% if decision.status %}
+- **{{ labels['status'] if labels.get('status') else 'Status' }}**: {{ decision.status }}
+{% endif %}
+{% if decision.date %}
+- **{{ labels['date'] if labels.get('date') else 'Date' }}**: {{ decision.date }}
+{% endif %}
+{% if decision.context %}
+- **{{ labels['context'] if labels.get('context') else 'Context' }}**: {{ decision.context }}
+{% endif %}
+{% if decision.decision %}
+- **{{ labels['decision'] if labels.get('decision') else 'Decision' }}**: {{ decision.decision }}
+{% endif %}
+{% if decision.consequences %}
+- **{{ labels['consequences'] if labels.get('consequences') else 'Consequences' }}**: {{ decision.consequences }}
+{% endif %}
+
+{% endfor %}
+
+### {{ labels['tech_debt'] }}
+
+{% for debt in design_decisions.tech_debt %}
+- **{{ debt.name }}**
+  - {{ labels['severity'] if labels.get('severity') else 'Severity' }}: {{ debt.severity }}
+  - {{ labels['location'] if labels.get('location') else 'Location' }}: {{ debt.location }}
+  - {{ labels['description'] }}: {{ debt.description }}
+  - {{ labels['suggestion'] if labels.get('suggestion') else 'Suggestion' }}: {{ debt.suggestion }}
+
+{% endfor %}
+
+### {{ labels['design_patterns'] if labels.get('design_patterns') else 'Design Patterns' }}
+
+{% for pattern in design_decisions.patterns %}
+- **{{ pattern.name }}**
+  - {{ labels['type'] }}: {{ pattern.type }}
+  - {{ labels['location'] if labels.get('location') else 'Location' }}: {{ pattern.location }}
+
+{% endfor %}
+
+{% else %}
+> {{ labels['tsd_not_found'] if labels.get('tsd_not_found') else 'Technical design decisions document not generated, please generate TSD document first.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['code_analysis'] if labels.get('code_analysis') else 'Code Analysis' }}
+
+### {{ labels['code_quality'] if labels.get('code_quality') else 'Code Quality' }}
+
+{% if code_analysis.quality.exists %}
+> {{ labels['code_quality_found'] if labels.get('code_quality_found') else 'Code quality analysis document generated, see code-quality.md' }}
+{% else %}
+> {{ labels['code_quality_not_found'] if labels.get('code_quality_not_found') else 'Code quality document not generated.' }}
+
+{% endif %}
+
+### {{ labels['test_coverage'] if labels.get('test_coverage') else 'Test Coverage' }}
+
+{% if code_analysis.test_coverage.exists %}
+> {{ labels['test_coverage_found'] if labels.get('test_coverage_found') else 'Test coverage analysis document generated, see test-coverage.md' }}
+{% else %}
+> {{ labels['test_coverage_not_found'] if labels.get('test_coverage_not_found') else 'Test coverage document not generated.' }}
+
+{% endif %}
+
+### {{ labels['implicit_knowledge'] if labels.get('implicit_knowledge') else 'Implicit Knowledge' }}
+
+{% if code_analysis.implicit_knowledge.exists %}
+> {{ labels['implicit_knowledge_found'] if labels.get('implicit_knowledge_found') else 'Implicit knowledge document generated, see implicit-knowledge.md' }}
+{% else %}
+> {{ labels['implicit_knowledge_not_found'] if labels.get('implicit_knowledge_not_found') else 'Implicit knowledge document not generated.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['security_design'] if labels.get('security_design') else 'Security Design' }}
+
+### {{ labels['security_considerations'] if labels.get('security_considerations') else 'Security Considerations' }}
+
+{% for consideration in security.security_considerations %}
+- **{{ consideration.category }}**
+  - {{ labels['module'] }}: {{ consideration.module }}
+  - {{ labels['description'] }}: {{ consideration.description }}
+
+{% endfor %}
+
+### {{ labels['security_recommendations'] if labels.get('security_recommendations') else 'Security Recommendations' }}
+
+1. {{ labels['security_rec_1'] if labels.get('security_rec_1') else 'Implement appropriate authentication and authorization mechanisms' }}
+2. {{ labels['security_rec_2'] if labels.get('security_rec_2') else 'Encrypt sensitive data' }}
+3. {{ labels['security_rec_3'] if labels.get('security_rec_3') else 'Implement input validation and output encoding' }}
+4. {{ labels['security_rec_4'] if labels.get('security_rec_4') else 'Conduct regular security audits and penetration testing' }}
+5. {{ labels['security_rec_5'] if labels.get('security_rec_5') else 'Follow the principle of least privilege' }}
+
+---
+
+## {{ labels['performance_design'] if labels.get('performance_design') else 'Performance Design' }}
+
+### {{ labels['async_operations'] if labels.get('async_operations') else 'Asynchronous Operations' }}
+
+{% for op in performance.async_operations %}
+- **{{ op.name }}**
+  - {{ labels['module'] }}: {{ op.module }}
+  - {{ labels['description'] }}: {{ op.description }}
+
+{% endfor %}
+
+### {{ labels['caching_strategy'] if labels.get('caching_strategy') else 'Caching Strategy' }}
+
+{% for cache in performance.caching %}
+- **{{ cache.module }}**
+  - {{ labels['description'] }}: {{ cache.description }}
+
+{% endfor %}
+
+### {{ labels['performance_recommendations'] if labels.get('performance_recommendations') else 'Performance Recommendations' }}
+
+1. {{ labels['perf_rec_1'] if labels.get('perf_rec_1') else 'Implement appropriate caching strategies' }}
+2. {{ labels['perf_rec_2'] if labels.get('perf_rec_2') else 'Optimize database queries' }}
+3. {{ labels['perf_rec_3'] if labels.get('perf_rec_3') else 'Use asynchronous processing to improve concurrency' }}
+4. {{ labels['perf_rec_4'] if labels.get('perf_rec_4') else 'Implement connection pool management' }}
+5. {{ labels['perf_rec_5'] if labels.get('perf_rec_5') else 'Monitor and optimize key performance metrics' }}
+
+---
+
+## {{ labels['deployment_architecture'] if labels.get('deployment_architecture') else 'Deployment Architecture' }}
+
+### {{ labels['containerization'] if labels.get('containerization') else 'Containerization' }}
+
+{% for container in deployment.containerization %}
+- **{{ container.type }}**
+  - {{ labels['file'] if labels.get('file') else 'File' }}: {{ container.file }}
+
+{% endfor %}
+
+### CI/CD
+
+{% for ci_cd in deployment.ci_cd %}
+- **{{ ci_cd.type }}**
+  - {{ labels['file'] if labels.get('file') else 'File' }}: {{ ci_cd.file }}
+
+{% endfor %}
+
+### {{ labels['deployment_recommendations'] if labels.get('deployment_recommendations') else 'Deployment Recommendations' }}
+
+1. {{ labels['deploy_rec_1'] if labels.get('deploy_rec_1') else 'Use containerization technology to simplify deployment' }}
+2. {{ labels['deploy_rec_2'] if labels.get('deploy_rec_2') else 'Implement automated CI/CD processes' }}
+3. {{ labels['deploy_rec_3'] if labels.get('deploy_rec_3') else 'Use environment variables to manage configuration' }}
+4. {{ labels['deploy_rec_4'] if labels.get('deploy_rec_4') else 'Implement log aggregation and monitoring' }}
+5. {{ labels['deploy_rec_5'] if labels.get('deploy_rec_5') else 'Develop a disaster recovery plan' }}
+
+---
+
+## {{ labels['appendix'] if labels.get('appendix') else 'Appendix' }}
+
+### {{ labels['glossary'] if labels.get('glossary') else 'Glossary' }}
+
+| {{ labels['term'] if labels.get('term') else 'Term' }} | {{ labels['definition'] if labels.get('definition') else 'Definition' }} |
+|------|------|
+| API | {{ labels['api_def'] if labels.get('api_def') else 'Application Programming Interface' }} |
+| ER {{ labels['diagram'] if labels.get('diagram') else 'Diagram' }} | {{ labels['er_def'] if labels.get('er_def') else 'Entity Relationship Diagram' }} |
+| TSD | {{ labels['tsd_def'] if labels.get('tsd_def') else 'Technical Specification Document' }} |
+| ADR | {{ labels['adr_def'] if labels.get('adr_def') else 'Architecture Decision Record' }} |
+
+### {{ labels['references'] if labels.get('references') else 'References' }}
+
+{% for ref in appendix.references %}
+- [{{ ref.title }}]({{ ref.url }})
+{% endfor %}
+
+### {{ labels['changelog'] if labels.get('changelog') else 'Changelog' }}
+
+{% if appendix.changelog %}
+{{ appendix.changelog }}
+{% else %}
+> {{ labels['changelog_not_found'] if labels.get('changelog_not_found') else 'Changelog file not found.' }}
+
+{% endif %}
+
+---
+
+## {{ labels['generation_notes'] if labels.get('generation_notes') else 'Document Generation Notes' }}
+
+{{ labels['generation_desc'] if labels.get('generation_desc') else 'This document was automatically generated by Python Wiki, combining the following generated documents:' }}
+
+- {{ labels['project_overview'] if labels.get('project_overview') else 'Project Overview' }} (overview.md)
+- {{ labels['system_architecture'] if labels.get('system_architecture') else 'System Architecture' }} (architecture/system-architecture.md)
+- {{ labels['tech_stack'] }} (tech-stack.md)
+- {{ labels['api_doc'] if labels.get('api_doc') else 'API Documentation' }} (api/index.md)
+- {{ labels['database_doc'] if labels.get('database_doc') else 'Database Documentation' }} (database/schema.md)
+- {{ labels['dependencies_doc'] if labels.get('dependencies_doc') else 'Dependencies Documentation' }} (dependencies/external.md)
+- {{ labels['config_doc'] if labels.get('config_doc') else 'Configuration Documentation' }} (configuration/environment.md)
+- {{ labels['development_doc'] if labels.get('development_doc') else 'Development Documentation' }} (development/getting-started.md)
+- {{ labels['design_decisions'] }} (tsd/design-decisions.md)
+
+{{ labels['update_instructions'] if labels.get('update_instructions') else 'To update this document, please generate or update the relevant documents above first, then regenerate the technical design specification.' }}
+
+---
+
+**{{ labels['document_end'] if labels.get('document_end') else 'End of Document' }}**

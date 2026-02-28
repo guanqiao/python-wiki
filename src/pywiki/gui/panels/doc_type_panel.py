@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from pywiki.generators.docs.base import DocType
+from pywiki.config.models import Language
 
 
 DOC_TYPE_INFO: dict[DocType, tuple[str, str]] = {
@@ -31,7 +32,9 @@ DOC_TYPE_INFO: dict[DocType, tuple[str, str]] = {
     DocType.CONFIGURATION: ("配置文档", "配置项说明文档"),
     DocType.DEVELOPMENT: ("开发文档", "开发指南文档"),
     DocType.DEPENDENCIES: ("依赖文档", "依赖关系文档"),
+    DocType.DEPLOYMENT: ("部署文档", "部署配置和运维文档"),
     DocType.TSD: ("技术设计决策", "技术设计决策记录"),
+    DocType.TECHNICAL_DESIGN_SPEC: ("技术设计规范", "综合性的技术设计规范文档，汇总所有技术文档"),
 }
 
 
@@ -40,10 +43,12 @@ class DocTypePanel(QWidget):
 
     generate_requested = pyqtSignal(list)
     generate_all_requested = pyqtSignal()
+    language_changed = pyqtSignal(list)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._checkboxes: dict[DocType, QCheckBox] = {}
+        self._language_checkboxes: dict[Language, QCheckBox] = {}
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -53,6 +58,28 @@ class DocTypePanel(QWidget):
         title_label = QLabel("文档类型")
         title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(title_label)
+
+        language_layout = QHBoxLayout()
+        language_label = QLabel("文档语言:")
+        language_label.setStyleSheet("font-weight: bold;")
+        language_layout.addWidget(language_label)
+        
+        self.zh_checkbox = QCheckBox("中文")
+        self.zh_checkbox.setChecked(True)
+        self.zh_checkbox.stateChanged.connect(self._on_language_changed)
+        self.zh_checkbox.setStyleSheet("font-weight: normal; margin-left: 10px;")
+        language_layout.addWidget(self.zh_checkbox)
+        self._language_checkboxes[Language.ZH] = self.zh_checkbox
+        
+        self.en_checkbox = QCheckBox("English")
+        self.en_checkbox.setChecked(True)
+        self.en_checkbox.stateChanged.connect(self._on_language_changed)
+        self.en_checkbox.setStyleSheet("font-weight: normal; margin-left: 5px;")
+        language_layout.addWidget(self.en_checkbox)
+        self._language_checkboxes[Language.EN] = self.en_checkbox
+        
+        language_layout.addStretch()
+        layout.addLayout(language_layout)
 
         select_layout = QHBoxLayout()
         
@@ -155,3 +182,28 @@ class DocTypePanel(QWidget):
     def set_all_selected(self, selected: bool) -> None:
         for checkbox in self._checkboxes.values():
             checkbox.setChecked(selected)
+
+    def _on_language_changed(self, state: int) -> None:
+        """语言选择变更处理"""
+        languages = self.get_selected_languages()
+        self.language_changed.emit(languages)
+
+    def get_selected_languages(self) -> list[Language]:
+        """获取选中的语言列表"""
+        languages = []
+        for language, checkbox in self._language_checkboxes.items():
+            if checkbox.isChecked():
+                languages.append(language)
+        if not languages:
+            languages.append(Language.ZH)
+        return languages
+
+    def get_selected_language(self) -> Language:
+        """获取首选语言（兼容旧接口）"""
+        languages = self.get_selected_languages()
+        return languages[0] if languages else Language.ZH
+
+    def set_languages(self, languages: list[Language]) -> None:
+        """设置选中的语言"""
+        for language, checkbox in self._language_checkboxes.items():
+            checkbox.setChecked(language in languages)

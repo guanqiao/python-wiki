@@ -7,7 +7,7 @@
 {% endif %}
 
 {% if features %}
-## 功能特性
+## {{ labels['features'] if labels.get('features') else 'Features' }}
 
 {% for feature in features %}
 - {{ feature }}
@@ -17,7 +17,7 @@
 {% if tech_stack %}
 ## {{ labels['tech_stack'] }}
 
-| 类别 | 技术 |
+| {{ labels['category'] if labels.get('category') else 'Category' }} | {{ labels['technology'] if labels.get('technology') else 'Technology' }} |
 |------|------|
 {% for category, techs in tech_stack.items() %}
 | {{ category }} | {{ techs | join(', ') }} |
@@ -35,7 +35,7 @@
 {% if modules %}
 ## {{ labels['modules'] }}
 
-| 模块 | 描述 |
+| {{ labels['module'] if labels.get('module') else 'Module' }} | {{ labels['description'] }} |
 |------|------|
 {% for module in modules %}
 | [{{ module.name }}](modules/{{ module.path }}.md) | {{ module.description }} |

@@ -14,8 +14,8 @@ def main() -> int:
 
 def cli_main() -> int:
     """CLI 主入口"""
-    from pywiki.cli.main import app
-    app()
+    from pywiki.cli.main import main
+    main()
     return 0
 
 

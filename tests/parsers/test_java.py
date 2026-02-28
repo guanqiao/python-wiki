@@ -705,3 +705,326 @@ public class UserRepository {
         for cls in module.classes:
             assert "Spring Service" in (cls.docstring or "") or \
                    cls.name == "MyComponent" or cls.name == "UserRepository"
+
+
+class TestDubboFeatures:
+    """Dubbo框架特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_dubbo_service(self, parser, tmp_path):
+        """测试解析Dubbo服务"""
+        code = """
+package com.example.service;
+
+import org.apache.dubbo.config.annotation.DubboService;
+
+@DubboService(version = "1.0.0", timeout = 5000)
+public class UserServiceImpl implements UserService {
+
+    public User findById(Long id) {
+        return null;
+    }
+}
+"""
+        file_path = tmp_path / "UserServiceImpl.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        assert "Dubbo" in (cls.docstring or "")
+
+    def test_parse_dubbo_reference(self, parser, tmp_path):
+        """测试解析Dubbo引用"""
+        code = """
+package com.example.controller;
+
+import org.apache.dubbo.config.annotation.DubboReference;
+import com.example.service.UserService;
+
+public class UserController {
+
+    @DubboReference(version = "1.0.0")
+    private UserService userService;
+
+    public User getUser(Long id) {
+        return userService.findById(id);
+    }
+}
+"""
+        file_path = tmp_path / "UserController.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+
+
+class TestValidationFeatures:
+    """Validation校验特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_validation_annotations(self, parser, tmp_path):
+        """测试解析校验注解"""
+        code = """
+package com.example.dto;
+
+import javax.validation.constraints.*;
+
+public class UserRequest {
+
+    @NotNull
+    private Long id;
+
+    @NotBlank
+    @Size(min = 2, max = 50)
+    private String name;
+
+    @Email
+    private String email;
+
+    @Min(0)
+    @Max(150)
+    private Integer age;
+}
+"""
+        file_path = tmp_path / "UserRequest.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        assert "Validation" in (cls.docstring or "")
+
+
+class TestQuartzFeatures:
+    """Quartz定时任务特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_scheduled_method(self, parser, tmp_path):
+        """测试解析定时任务方法"""
+        code = """
+package com.example.job;
+
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Component
+public class DataSyncJob {
+
+    @Scheduled(cron = "0 0 2 * * ?")
+    public void syncData() {
+    }
+
+    @Scheduled(fixedRate = 60000)
+    public void heartbeat() {
+    }
+
+    @Scheduled(fixedDelay = 5000, initialDelay = 10000)
+    public void cleanup() {
+    }
+}
+"""
+        file_path = tmp_path / "DataSyncJob.java"
+        file_path.write_text(code, encoding="utf-8")
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        assert "Spring Service" in (cls.docstring or "") or "Component" in (cls.docstring or "")
+
+
+class TestFeignFeatures:
+    """Feign客户端特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_feign_client(self, parser, tmp_path):
+        """测试解析Feign客户端"""
+        code = """
+package com.example.client;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.*;
+
+@FeignClient(name = "user-service", url = "http://localhost:8080", path = "/api")
+public interface UserClient {
+
+    @GetMapping("/users/{id}")
+    User getUser(@PathVariable("id") Long id);
+
+    @PostMapping("/users")
+    User createUser(@RequestBody User user);
+
+    @DeleteMapping("/users/{id}")
+    void deleteUser(@PathVariable("id") Long id);
+}
+"""
+        file_path = tmp_path / "UserClient.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        assert "Feign Client" in (cls.docstring or "")
+
+
+class TestSpringSecurityFeatures:
+    """Spring Security特性测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_parse_security_annotations(self, parser, tmp_path):
+        """测试解析安全注解"""
+        code = """
+package com.example.controller;
+
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/admin")
+public class AdminController {
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/users")
+    public List<User> listUsers() {
+        return null;
+    }
+
+    @PreAuthorize("hasAuthority('user:delete')")
+    @DeleteMapping("/users/{id}")
+    public void deleteUser(@PathVariable Long id) {
+    }
+}
+"""
+        file_path = tmp_path / "AdminController.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        assert "Security" in (cls.docstring or "") or "Spring Controller" in (cls.docstring or "")
+
+
+class TestEnhancedEndpointExtraction:
+    """增强端点提取测试"""
+
+    @pytest.fixture
+    def parser(self):
+        return JavaParser()
+
+    def test_extract_consumes_produces(self, parser, tmp_path):
+        """测试提取consumes和produces"""
+        code = """
+package com.example.controller;
+
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping(value = "/api", produces = "application/json")
+public class ApiController {
+
+    @PostMapping(value = "/users", consumes = "application/json", produces = "application/json")
+    public User createUser(@RequestBody User user) {
+        return null;
+    }
+
+    @GetMapping(value = "/users", produces = {"application/json", "application/xml"})
+    public List<User> listUsers() {
+        return null;
+    }
+}
+"""
+        file_path = tmp_path / "ApiController.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        docstring = cls.docstring or ""
+        assert "Spring Controller" in docstring
+        assert "Route:" in docstring
+
+    def test_extract_multiple_request_methods(self, parser, tmp_path):
+        """测试提取多种请求方法"""
+        code = """
+package com.example.controller;
+
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+public class MultiMethodController {
+
+    @GetMapping("/items")
+    public List<Item> list() { return null; }
+
+    @PostMapping("/items")
+    public Item create(@RequestBody Item item) { return null; }
+
+    @PutMapping("/items/{id}")
+    public Item update(@PathVariable Long id, @RequestBody Item item) { return null; }
+
+    @DeleteMapping("/items/{id}")
+    public void delete(@PathVariable Long id) {}
+
+    @PatchMapping("/items/{id}")
+    public Item patch(@PathVariable Long id, @RequestBody Map<String, Object> updates) { return null; }
+}
+"""
+        file_path = tmp_path / "MultiMethodController.java"
+        file_path.write_text(code)
+
+        result = parser.parse_file(file_path)
+
+        assert len(result.errors) == 0
+        assert len(result.modules) == 1
+        module = result.modules[0]
+        assert len(module.classes) == 1
+
+        cls = module.classes[0]
+        assert len(cls.methods) >= 5

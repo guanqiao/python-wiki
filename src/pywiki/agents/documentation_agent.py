@@ -25,6 +25,7 @@ from pywiki.generators.docs.tsd_generator import TSDGenerator
 from pywiki.generators.docs.implicit_knowledge_generator import ImplicitKnowledgeGenerator
 from pywiki.generators.docs.test_coverage_generator import TestCoverageGenerator
 from pywiki.generators.docs.code_quality_generator import CodeQualityGenerator
+from pywiki.generators.docs.technical_design_spec_generator import TechnicalDesignSpecGenerator
 from pywiki.config.models import Language
 from pywiki.monitor.logger import logger
 
@@ -315,6 +316,7 @@ class DocumentationAgent(BaseAgent):
             DocType.IMPLICIT_KNOWLEDGE: ImplicitKnowledgeGenerator(language=language),
             DocType.TEST_COVERAGE: TestCoverageGenerator(language=language),
             DocType.CODE_QUALITY: CodeQualityGenerator(language=language),
+            DocType.TECHNICAL_DESIGN_SPEC: TechnicalDesignSpecGenerator(language=language),
         }
 
     async def generate_single_doc(
@@ -388,6 +390,7 @@ class DocumentationAgent(BaseAgent):
             {"type": DocType.IMPLICIT_KNOWLEDGE.value, "description": "隐性知识文档"},
             {"type": DocType.TEST_COVERAGE.value, "description": "测试覆盖分析"},
             {"type": DocType.CODE_QUALITY.value, "description": "代码质量分析"},
+            {"type": DocType.TECHNICAL_DESIGN_SPEC.value, "description": "技术设计规范（综合文档）"},
         ]
 
     def get_progress(self) -> DocGenerationProgress:

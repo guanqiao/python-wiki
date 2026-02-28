@@ -307,38 +307,159 @@ class APIGenerator(BaseDocGenerator):
         for module in context.parse_result.modules:
             for cls in module.classes:
                 class_base_path = ""
+                class_consumes = []
+                class_produces = []
                 
-                for annotation in getattr(cls, 'annotations', []):
-                    if "RequestMapping" in annotation:
-                        match = re.search(r'value\s*=\s*["\']([^"\']+)["\']', annotation)
-                        if match:
-                            class_base_path = match.group(1)
+                cls_docstring = cls.docstring or ""
+                if "Route:" in cls_docstring:
+                    match = re.search(r'Route:\s*([^\s|]+)', cls_docstring)
+                    if match:
+                        class_base_path = match.group(1)
+                if "Consumes:" in cls_docstring:
+                    match = re.search(r'Consumes:\s*([^|]+)', cls_docstring)
+                    if match:
+                        class_consumes = [c.strip() for c in match.group(1).split(",")]
+                if "Produces:" in cls_docstring:
+                    match = re.search(r'Produces:\s*([^|]+)', cls_docstring)
+                    if match:
+                        class_produces = [p.strip() for p in match.group(1).split(",")]
                 
                 for method in cls.methods:
-                    for annotation in getattr(method, 'annotations', []):
-                        for annotation_name, http_method in spring_annotations.items():
-                            if annotation_name in annotation:
-                                path_match = re.search(r'value\s*=\s*["\']([^"\']+)["\']', annotation)
-                                path = path_match.group(1) if path_match else "/"
-                                
-                                full_path = f"{class_base_path}{path}" if class_base_path else path
-                                
-                                if annotation_name == "RequestMapping" and http_method is None:
-                                    method_match = re.search(r'method\s*=\s*RequestMethod\.(\w+)', annotation)
-                                    http_method = method_match.group(1) if method_match else "GET"
-                                
-                                endpoints.append({
-                                    "path": full_path,
-                                    "method": http_method if http_method else "GET",
-                                    "handler": method.name,
-                                    "location": f"{module.name}.{cls.name}",
-                                    "description": method.docstring.split("\n")[0] if method.docstring else "",
-                                    "parameters": [],
-                                    "return_type": method.return_type or "void",
-                                })
-                                break
+                    endpoint_info = self._parse_java_method_endpoint(
+                        method, cls, module, class_base_path, 
+                        class_consumes, class_produces, spring_annotations
+                    )
+                    if endpoint_info:
+                        endpoints.append(endpoint_info)
         
-        return endpoints[:50]
+        return endpoints[:100]
+
+    def _parse_java_method_endpoint(
+        self,
+        method,
+        cls,
+        module,
+        class_base_path: str,
+        class_consumes: list,
+        class_produces: list,
+        spring_annotations: dict
+    ) -> Optional[dict[str, Any]]:
+        """解析Java方法端点"""
+        method_docstring = method.docstring or ""
+        
+        http_method = None
+        path = None
+        consumes = list(class_consumes)
+        produces = list(class_produces)
+        
+        for ann_name, default_method in spring_annotations.items():
+            if f"Route:" in method_docstring or ann_name.lower().replace("mapping", "") in method_docstring.lower():
+                if "Method:" in method_docstring:
+                    match = re.search(r'Method:\s*(\w+)', method_docstring)
+                    if match:
+                        http_method = match.group(1).upper()
+                
+                if "Route:" in method_docstring:
+                    match = re.search(r'Route:\s*([^\s|]+)', method_docstring)
+                    if match:
+                        path = match.group(1)
+                
+                if "Consumes:" in method_docstring:
+                    match = re.search(r'Consumes:\s*([^|]+)', method_docstring)
+                    if match:
+                        consumes = [c.strip() for c in match.group(1).split(",")]
+                
+                if "Produces:" in method_docstring:
+                    match = re.search(r'Produces:\s*([^|]+)', method_docstring)
+                    if match:
+                        produces = [p.strip() for p in match.group(1).split(",")]
+                
+                if not http_method:
+                    if default_method:
+                        http_method = default_method
+                    else:
+                        http_method = "GET"
+                
+                if not path:
+                    path = "/"
+                
+                break
+        
+        if not http_method:
+            return None
+        
+        full_path = f"{class_base_path}{path}" if class_base_path and path else path or "/"
+        
+        parameters = self._extract_java_method_parameters(method)
+        
+        security = None
+        if "Security:" in method_docstring:
+            match = re.search(r'Security:\s*([^|]+)', method_docstring)
+            if match:
+                security = match.group(1).strip()
+        
+        description = method_docstring.split("\n")[0] if method_docstring else ""
+        for prefix in ["Route:", "Method:", "Consumes:", "Produces:", "Security:"]:
+            description = re.sub(rf'{prefix}\s*[^\|]+\s*\|?\s*', '', description)
+        description = description.strip()
+        
+        return {
+            "path": full_path,
+            "method": http_method,
+            "handler": method.name,
+            "location": f"{module.name}.{cls.name}",
+            "description": description,
+            "parameters": parameters,
+            "return_type": method.return_type or "void",
+            "consumes": consumes,
+            "produces": produces,
+            "security": security,
+            "tags": [cls.name.replace("Controller", "").replace("Resource", "")],
+        }
+
+    def _extract_java_method_parameters(self, method) -> list[dict[str, Any]]:
+        """提取Java方法参数信息"""
+        parameters = []
+        
+        for param in method.parameters:
+            param_info = {
+                "name": param.name,
+                "type": param.type_hint or "Object",
+                "required": True,
+                "in": "query",
+                "description": "",
+            }
+            
+            if param.description:
+                desc = param.description
+                if "RequestParam" in desc:
+                    param_info["in"] = "query"
+                elif "PathVariable" in desc:
+                    param_info["in"] = "path"
+                elif "RequestBody" in desc:
+                    param_info["in"] = "body"
+                elif "RequestHeader" in desc:
+                    param_info["in"] = "header"
+                elif "CookieValue" in desc:
+                    param_info["in"] = "cookie"
+                
+                required_match = re.search(r'required\s*=\s*(true|false)', desc)
+                if required_match:
+                    param_info["required"] = required_match.group(1).lower() == "true"
+                
+                default_match = re.search(r'defaultValue\s*=\s*["\']([^"\']+)["\']', desc)
+                if default_match:
+                    param_info["default"] = default_match.group(1)
+                    param_info["required"] = False
+                
+                name_match = re.search(r'(?:name|value)\s*=\s*["\']([^"\']+)["\']', desc)
+                if name_match:
+                    param_info["name"] = name_match.group(1)
+            
+            if param.name not in ["request", "response", "principal", "authentication"]:
+                parameters.append(param_info)
+        
+        return parameters
 
     def _extract_typescript_endpoints(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
         """提取 TypeScript REST API 端点"""
@@ -397,7 +518,10 @@ class APIGenerator(BaseDocGenerator):
                 "schemas": {},
                 "securitySchemes": {},
             },
+            "tags": [],
         }
+        
+        tags_set = set()
         
         for endpoint in endpoints:
             path = endpoint["path"]
@@ -421,17 +545,64 @@ class APIGenerator(BaseDocGenerator):
                 },
             }
             
+            if endpoint.get("tags"):
+                path_item["tags"] = endpoint["tags"]
+                tags_set.update(endpoint["tags"])
+            
+            if endpoint.get("consumes"):
+                path_item["requestBody"] = {
+                    "content": {
+                        ct: {"schema": {"type": "object"}}
+                        for ct in endpoint["consumes"]
+                    }
+                }
+            
+            if endpoint.get("produces"):
+                for code, response in path_item["responses"].items():
+                    response["content"] = {
+                        ct: response["content"].get("application/json", {"schema": {"type": "object"}})
+                        for ct in endpoint["produces"]
+                    }
+            
+            if endpoint.get("security"):
+                path_item["security"] = [{endpoint["security"]: []}]
+            
             if endpoint.get("parameters"):
                 path_item["parameters"] = []
+                request_body_params = []
+                
                 for param in endpoint["parameters"]:
-                    path_item["parameters"].append({
-                        "name": param.get("name", ""),
-                        "in": param.get("in", "query"),
-                        "required": param.get("required", False),
-                        "schema": {"type": self._map_type_to_openapi(param.get("type", "string"))},
-                    })
+                    if param.get("in") == "body":
+                        request_body_params.append(param)
+                    else:
+                        path_item["parameters"].append({
+                            "name": param.get("name", ""),
+                            "in": param.get("in", "query"),
+                            "required": param.get("required", False),
+                            "description": param.get("description", ""),
+                            "schema": {"type": self._map_type_to_openapi(param.get("type", "string"))},
+                        })
+                
+                if request_body_params and "requestBody" not in path_item:
+                    path_item["requestBody"] = {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        p["name"]: {"type": self._map_type_to_openapi(p.get("type", "object"))}
+                                        for p in request_body_params
+                                    }
+                                }
+                            }
+                        }
+                    }
             
             openapi["paths"][path][method] = path_item
+        
+        for tag in tags_set:
+            openapi["tags"].append({"name": tag})
         
         return openapi
 

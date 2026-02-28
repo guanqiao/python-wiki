@@ -1,0 +1,359 @@
+# {{ labels['deployment_guide'] }}
+
+{% if description %}
+## {{ labels['overview'] }}
+
+{{ description }}
+{% endif %}
+
+{% if deployment_architecture %}
+## {{ labels['deployment_architecture_title'] }}
+
+{{ deployment_architecture }}
+
+{% if architecture_diagram %}
+```
+{{ architecture_diagram }}
+```
+{% endif %}
+{% endif %}
+
+{% if environments %}
+## {{ labels['environment_config'] }}
+
+{% for env in environments %}
+### {{ env.name }}
+
+{% if env.description %}
+{{ env.description }}
+{% endif %}
+
+{% if env.variables %}
+| {{ labels['variable_name'] }} | {{ labels['description'] }} | {{ labels['default'] }} | {{ labels['required'] }} |
+|--------|------|--------|------|
+{% for var in env.variables %}
+| `{{ var.name }}` | {{ var.description }} | {{ var.default or '-' }} | {{ labels['yes'] if var.required else labels['no'] }} |
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if prerequisites %}
+## {{ labels['prerequisites'] }}
+
+{% for item in prerequisites %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if deployment_steps %}
+## {{ labels['deployment_process'] }}
+
+{% for step in deployment_steps %}
+### {{ step.name }}
+
+{% if step.description %}
+{{ step.description }}
+{% endif %}
+
+{% if step.commands %}
+```bash
+{% for cmd in step.commands %}
+{{ cmd }}
+{% endfor %}
+```
+{% endif %}
+
+{% if step.notes %}
+> {{ step.notes }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if containerization %}
+## {{ labels['container_deployment'] }}
+
+{% if containerization.docker %}
+### Docker
+
+{% if containerization.docker.dockerfile_path %}
+**{{ labels['dockerfile_location'] }}**: `{{ containerization.docker.dockerfile_path }}`
+{% endif %}
+
+{% if containerization.docker.build_command %}
+**{{ labels['build_image'] }}**:
+```bash
+{{ containerization.docker.build_command }}
+```
+{% endif %}
+
+{% if containerization.docker.run_command %}
+**{{ labels['run_container'] }}**:
+```bash
+{{ containerization.docker.run_command }}
+```
+{% endif %}
+
+{% if containerization.docker.exposed_ports %}
+**{{ labels['exposed_ports'] }}**:
+{% for port in containerization.docker.exposed_ports %}
+- `{{ port }}`
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if containerization.docker_compose %}
+### Docker Compose
+
+{% if containerization.docker_compose.file_path %}
+**{{ labels['config_file'] }}**: `{{ containerization.docker_compose.file_path }}`
+{% endif %}
+
+{% if containerization.docker_compose.services %}
+**{{ labels['service_list'] }}**:
+| {{ labels['service_name'] }} | {{ labels['image'] }} | {{ labels['ports'] }} |
+|--------|------|------|
+{% for service in containerization.docker_compose.services %}
+| {{ service.name }} | {{ service.image }} | {{ service.ports }} |
+{% endfor %}
+{% endif %}
+
+{% if containerization.docker_compose.commands %}
+**{{ labels['common_commands'] }}**:
+```bash
+{% for cmd in containerization.docker_compose.commands %}
+{{ cmd }}
+{% endfor %}
+```
+{% endif %}
+{% endif %}
+
+{% if containerization.kubernetes %}
+### Kubernetes
+
+{% if containerization.kubernetes.config_path %}
+**{{ labels['config_dir'] }}**: `{{ containerization.kubernetes.config_path }}`
+{% endif %}
+
+{% if containerization.kubernetes.resources %}
+**{{ labels['resource_list'] }}**:
+| {{ labels['resource_type'] }} | {{ labels['name'] }} | {{ labels['file'] }} |
+|----------|------|------|
+{% for resource in containerization.kubernetes.resources %}
+| {{ resource.type }} | {{ resource.name }} | `{{ resource.file }}` |
+{% endfor %}
+{% endif %}
+
+{% if containerization.kubernetes.commands %}
+**{{ labels['common_commands'] }}**:
+```bash
+{% for cmd in containerization.kubernetes.commands %}
+{{ cmd }}
+{% endfor %}
+```
+{% endif %}
+{% endif %}
+{% endif %}
+
+{% if cicd %}
+## {{ labels['cicd_config'] }}
+
+{% if cicd.platform %}
+**{{ labels['platform'] }}**: {{ cicd.platform }}
+{% endif %}
+
+{% if cicd.config_file %}
+**{{ labels['config_file'] }}**: `{{ cicd.config_file }}`
+{% endif %}
+
+{% if cicd.pipelines %}
+### {{ labels['pipeline'] }}
+
+{% for pipeline in cicd.pipelines %}
+#### {{ pipeline.name }}
+
+{% if pipeline.stages %}
+**{{ labels['stages'] }}**:
+{% for stage in pipeline.stages %}
+{{ loop.index }}. {{ stage }}
+{% endfor %}
+{% endif %}
+
+{% if pipeline.triggers %}
+**{{ labels['triggers'] }}**:
+{% for trigger in pipeline.triggers %}
+- {{ trigger }}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if cicd.secrets %}
+### {{ labels['secret_config'] }}
+
+| {{ labels['secret_name'] }} | {{ labels['description'] }} |
+|--------|------|
+{% for secret in cicd.secrets %}
+| `{{ secret.name }}` | {{ secret.description }} |
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if monitoring %}
+## {{ labels['monitoring_logging'] }}
+
+{% if monitoring.metrics %}
+### {{ labels['monitoring_metrics'] }}
+
+{% for metric in monitoring.metrics %}
+- **{{ metric.name }}**: {{ metric.description }}
+{% endfor %}
+{% endif %}
+
+{% if monitoring.logging %}
+### {{ labels['log_config'] }}
+
+{% if monitoring.logging.format %}
+**{{ labels['log_format'] }}**: {{ monitoring.logging.format }}
+{% endif %}
+
+{% if monitoring.logging.output %}
+**{{ labels['log_output'] }}**: {{ monitoring.logging.output }}
+{% endif %}
+
+{% if monitoring.logging.level %}
+**{{ labels['log_level'] }}**: {{ monitoring.logging.level }}
+{% endif %}
+{% endif %}
+
+{% if monitoring.alerting %}
+### {{ labels['alert_config'] }}
+
+{% for alert in monitoring.alerting %}
+- **{{ alert.name }}**: {{ alert.condition }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if backup %}
+## {{ labels['backup_recovery'] }}
+
+{% if backup.strategy %}
+### {{ labels['backup_strategy'] }}
+
+{{ backup.strategy }}
+{% endif %}
+
+{% if backup.schedule %}
+**{{ labels['backup_schedule'] }}**: {{ backup.schedule }}
+{% endif %}
+
+{% if backup.commands %}
+### {{ labels['backup_commands'] }}
+
+```bash
+{% for cmd in backup.commands %}
+{{ cmd }}
+{% endfor %}
+```
+{% endif %}
+
+{% if backup.restore_commands %}
+### {{ labels['restore_commands'] }}
+
+```bash
+{% for cmd in backup.restore_commands %}
+{{ cmd }}
+{% endfor %}
+```
+{% endif %}
+{% endif %}
+
+{% if troubleshooting %}
+## {{ labels['troubleshooting'] }}
+
+{% for item in troubleshooting %}
+### {{ item.problem }}
+
+**{{ labels['symptom'] }}**: {{ item.symptom }}
+
+**{{ labels['cause'] }}**: {{ item.cause }}
+
+**{{ labels['solution'] }}**:
+{% for step in item.solution %}
+{{ loop.index }}. {{ step }}
+{% endfor %}
+
+{% endfor %}
+{% endif %}
+
+{% if security %}
+## {{ labels['security_config'] }}
+
+{% if security.secrets_management %}
+### {{ labels['secrets_management'] }}
+
+{{ security.secrets_management }}
+{% endif %}
+
+{% if security.network_policies %}
+### {{ labels['network_policies'] }}
+
+{% for policy in security.network_policies %}
+- {{ policy }}
+{% endfor %}
+{% endif %}
+
+{% if security.ssl_tls %}
+### {{ labels['ssl_tls_config'] }}
+
+{{ security.ssl_tls }}
+{% endif %}
+{% endif %}
+
+{% if scaling %}
+## {{ labels['scaling'] }}
+
+{% if scaling.horizontal %}
+### {{ labels['horizontal_scaling'] }}
+
+{{ scaling.horizontal }}
+{% endif %}
+
+{% if scaling.vertical %}
+### {{ labels['vertical_scaling'] }}
+
+{{ scaling.vertical }}
+{% endif %}
+
+{% if scaling.auto_scaling %}
+### {{ labels['auto_scaling'] }}
+
+{{ scaling.auto_scaling }}
+{% endif %}
+{% endif %}
+
+{% if rollback %}
+## {{ labels['rollback_strategy'] }}
+
+{{ rollback }}
+{% endif %}
+
+{% if best_practices %}
+## {{ labels['best_practices'] }}
+
+{% for practice in best_practices %}
+- {{ practice }}
+{% endfor %}
+{% endif %}
+
+{% if references %}
+## {{ labels['references'] }}
+
+{% for ref in references %}
+- [{{ ref.title }}]({{ ref.url }})
+{% endfor %}
+{% endif %}

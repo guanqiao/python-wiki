@@ -1,10 +1,12 @@
 """
 Java 代码解析器
-支持 Spring Boot / Spring MVC / MyBatis Plus 技术栈
+支持 Spring Boot / Spring MVC / MyBatis Plus / Dubbo / Validation 技术栈
 """
 
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from tree_sitter import Language, Parser, Tree
 
@@ -21,6 +23,37 @@ from pywiki.parsers.types import (
     PropertyInfo,
     Visibility,
 )
+
+
+@dataclass
+class AnnotationInfo:
+    """注解信息"""
+    name: str
+    attributes: dict[str, Any] = field(default_factory=dict)
+    raw_text: str = ""
+
+
+@dataclass
+class SpringEndpointInfo:
+    """Spring端点信息"""
+    path: str = ""
+    method: str = "GET"
+    consumes: list[str] = field(default_factory=list)
+    produces: list[str] = field(default_factory=list)
+    params: list[str] = field(default_factory=list)
+    headers: list[str] = field(default_factory=list)
+
+
+@dataclass
+class JpaColumnInfo:
+    """JPA列信息"""
+    name: Optional[str] = None
+    nullable: bool = True
+    unique: bool = False
+    length: Optional[int] = None
+    precision: Optional[int] = None
+    scale: Optional[int] = None
+    column_definition: Optional[str] = None
 
 
 def _get_java_language():
@@ -44,18 +77,32 @@ class JavaParser(BaseParser):
     }
     SPRING_SERVICES = {"Service", "Component", "Repository"}
     SPRING_INJECTION = {"Autowired", "Inject", "Resource"}
-    SPRING_CONFIG = {"Configuration", "Bean", "Value", "Profile"}
+    SPRING_CONFIG = {"Configuration", "Bean", "Value", "Profile", "ConditionalOnProperty", "ConditionalOnClass", "ConditionalOnBean"}
+    SPRING_SECURITY = {"PreAuthorize", "PostAuthorize", "Secured", "RolesAllowed", "PermitAll", "DenyAll"}
+    SPRING_PARAMS = {"RequestParam", "PathVariable", "RequestBody", "RequestHeader", "CookieValue", "MatrixVariable", "RequestPart"}
 
     MYBATIS_PLUS = {"TableName", "TableId", "TableField", "Version", "LogicDelete"}
     MYBATIS_MAPPER = {"Mapper", "Select", "Insert", "Update", "Delete"}
 
     LOMBOK = {"Data", "Getter", "Setter", "Builder", "NoArgsConstructor",
               "AllArgsConstructor", "RequiredArgsConstructor", "ToString", "EqualsAndHashCode",
-              "Slf4j", "Log4j2"}
+              "Slf4j", "Log4j2", "FieldNameConstants", "With", "Singular", "Builder.Default"}
 
     JPA_ENTITY = {"Entity", "Table", "Column", "Id", "GeneratedValue", "SequenceGenerator",
                   "Temporal", "Enumerated", "Lob", "Transient", "Version"}
     JPA_RELATIONSHIP = {"OneToOne", "OneToMany", "ManyToOne", "ManyToMany", "JoinColumn", "JoinTable"}
+    JPA_INDEX = {"Index", "UniqueConstraint"}
+
+    DUBBO = {"DubboService", "DubboReference", "Service", "Reference", "DubboComponent"}
+    
+    VALIDATION = {"NotNull", "NotEmpty", "NotBlank", "Null", "AssertTrue", "AssertFalse",
+                  "Min", "Max", "DecimalMin", "DecimalMax", "Size", "Digits",
+                  "Past", "PastOrPresent", "Future", "FutureOrPresent",
+                  "Pattern", "Email", "Valid", "Positive", "PositiveOrZero", "Negative", "NegativeOrZero"}
+    
+    QUARTZ = {"Scheduled", "Schedules", "DisallowConcurrentExecution", "PersistJobDataAfterExecution"}
+    
+    FEIGN = {"FeignClient", "RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"}
 
     def __init__(
         self,
@@ -254,6 +301,9 @@ class JavaParser(BaseParser):
         class_info = self._analyze_spring_features(class_info, annotations, source)
         class_info = self._analyze_lombok_features(class_info, annotations)
         class_info = self._analyze_jpa_features(class_info, annotations, source)
+        class_info = self._analyze_dubbo_features(class_info, annotations, source)
+        class_info = self._analyze_validation_features(class_info, annotations, source)
+        class_info = self._analyze_feign_features(class_info, annotations, source)
 
         return class_info
 
@@ -305,6 +355,8 @@ class JavaParser(BaseParser):
                             class_info.class_variables.append(field)
 
         class_info = self._analyze_mybatis_mapper(class_info, annotations)
+        class_info = self._analyze_feign_features(class_info, annotations, source)
+        class_info = self._analyze_dubbo_features(class_info, annotations, source)
 
         return class_info
 
@@ -526,25 +578,29 @@ class JavaParser(BaseParser):
         visibility = Visibility.PACKAGE
         is_static = False
         is_final = False
+        field_annotations = []
 
         for child in node.children:
             if child.type == "modifiers":
-                mods, _ = self._parse_modifiers(child, source)
+                mods, anns = self._parse_modifiers(child, source)
                 visibility = self._get_visibility_from_modifiers(mods)
                 is_static = "static" in mods
                 is_final = "final" in mods
+                field_annotations = anns
             elif child.type == "type_identifier" or child.type == "scoped_type_identifier":
                 type_hint = self._get_node_text(child, source)
             elif child.type == "variable_declarator":
                 for var_child in child.children:
                     if var_child.type == "identifier":
                         name = self._get_node_text(var_child, source)
-                        fields.append(PropertyInfo(
+                        prop = PropertyInfo(
                             name=name,
                             type_hint=type_hint,
                             visibility=visibility,
                             is_readonly=is_final,
-                        ))
+                            decorators=field_annotations,
+                        )
+                        fields.append(prop)
 
         return fields
 
@@ -601,15 +657,29 @@ class JavaParser(BaseParser):
 
         if any(ann in self.SPRING_CONTROLLERS for ann in annotations):
             spring_info.append("Spring Controller")
-            route = self._extract_route_mapping(source, annotations)
-            if route:
-                spring_info.append(f"Route: {route}")
+            endpoint = self._extract_spring_endpoint_info(source, annotations)
+            if endpoint:
+                spring_info.append(f"Route: {endpoint.path}")
+                if endpoint.method != "GET":
+                    spring_info.append(f"Method: {endpoint.method}")
+                if endpoint.consumes:
+                    spring_info.append(f"Consumes: {', '.join(endpoint.consumes)}")
+                if endpoint.produces:
+                    spring_info.append(f"Produces: {', '.join(endpoint.produces)}")
 
         if any(ann in self.SPRING_SERVICES for ann in annotations):
             spring_info.append("Spring Service")
 
         if any(ann in self.SPRING_CONFIG for ann in annotations):
             spring_info.append("Spring Configuration")
+            if "ConditionalOnProperty" in annotations:
+                spring_info.append("条件装配")
+            if "ConditionalOnClass" in annotations or "ConditionalOnBean" in annotations:
+                spring_info.append("条件加载")
+
+        if any(ann in self.SPRING_SECURITY for ann in annotations):
+            security_info = [ann for ann in annotations if ann in self.SPRING_SECURITY]
+            spring_info.append(f"Security: {', '.join(security_info)}")
 
         if any(ann in self.MYBATIS_PLUS for ann in annotations):
             spring_info.append("MyBatis Plus Entity")
@@ -724,9 +794,14 @@ class JavaParser(BaseParser):
 
         route_annotations = self.SPRING_CONTROLLERS & set(annotations)
         if route_annotations:
-            route = self._extract_route_mapping(source, annotations)
-            if route:
-                method_info.append(f"Route: {route}")
+            endpoint = self._extract_spring_endpoint_info(source, annotations)
+            if endpoint:
+                method_info.append(f"Route: {endpoint.path}")
+                method_info.append(f"Method: {endpoint.method}")
+                if endpoint.consumes:
+                    method_info.append(f"Consumes: {', '.join(endpoint.consumes)}")
+                if endpoint.produces:
+                    method_info.append(f"Produces: {', '.join(endpoint.produces)}")
 
         injection_annotations = self.SPRING_INJECTION & set(annotations)
         if injection_annotations:
@@ -736,22 +811,124 @@ class JavaParser(BaseParser):
         if sql_annotations:
             func_info.description = f"MyBatis SQL: {', '.join(sql_annotations)}"
 
+        security_annotations = self.SPRING_SECURITY & set(annotations)
+        if security_annotations:
+            method_info.append(f"Security: {', '.join(security_annotations)}")
+
+        scheduled_info = self._extract_scheduled_info(source, annotations)
+        if scheduled_info:
+            method_info.append("定时任务")
+            if "cron" in scheduled_info:
+                method_info.append(f"Cron: {scheduled_info['cron']}")
+            elif "fixedRate" in scheduled_info:
+                method_info.append(f"FixedRate: {scheduled_info['fixedRate']}ms")
+            elif "fixedDelay" in scheduled_info:
+                method_info.append(f"FixedDelay: {scheduled_info['fixedDelay']}ms")
+
         if method_info:
             existing_doc = func_info.docstring or ""
             func_info.docstring = f"{' | '.join(method_info)}\n{existing_doc}".strip()
 
         return func_info
 
+    def _analyze_dubbo_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析Dubbo服务特性"""
+        dubbo_info = []
+
+        dubbo_annotations = self.DUBBO & set(annotations)
+        if dubbo_annotations:
+            dubbo_info.append(f"Dubbo: {', '.join(dubbo_annotations)}")
+            
+            service_info = self._extract_dubbo_service_info(source, annotations)
+            if service_info:
+                if "version" in service_info:
+                    dubbo_info.append(f"Version: {service_info['version']}")
+                if "interface" in service_info:
+                    dubbo_info.append(f"Interface: {service_info['interface']}")
+                if "group" in service_info:
+                    dubbo_info.append(f"Group: {service_info['group']}")
+                if "timeout" in service_info:
+                    dubbo_info.append(f"Timeout: {service_info['timeout']}ms")
+
+        if dubbo_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(dubbo_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _analyze_validation_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析Validation校验特性"""
+        validation_info = []
+
+        validation_annotations = self.VALIDATION & set(annotations)
+        if validation_annotations:
+            validation_info.append(f"Validation: {', '.join(validation_annotations)}")
+        
+        for prop in class_info.class_variables:
+            prop_decorators = getattr(prop, 'decorators', [])
+            if prop_decorators:
+                for dec in prop_decorators:
+                    if dec in self.VALIDATION:
+                        if not any("Validation:" in v for v in validation_info):
+                            validation_info.append(f"Validation: {dec}")
+                        break
+
+        if validation_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(validation_info)}\n{existing_doc}".strip()
+
+        return class_info
+
+    def _analyze_feign_features(
+        self,
+        class_info: ClassInfo,
+        annotations: list[str],
+        source: str
+    ) -> ClassInfo:
+        """分析Feign客户端特性"""
+        feign_info = []
+
+        if "FeignClient" in annotations:
+            feign_info.append("Feign Client")
+            
+            client_info = self._extract_feign_client_info(source, annotations)
+            if client_info:
+                if "name" in client_info:
+                    feign_info.append(f"Service: {client_info['name']}")
+                if "url" in client_info:
+                    feign_info.append(f"URL: {client_info['url']}")
+                if "path" in client_info:
+                    feign_info.append(f"Path: {client_info['path']}")
+
+        if feign_info:
+            existing_doc = class_info.docstring or ""
+            class_info.docstring = f"{' | '.join(feign_info)}\n{existing_doc}".strip()
+
+        return class_info
+
     def _extract_route_mapping(self, source: str, annotations: list[str]) -> Optional[str]:
         """提取路由映射信息"""
-        import re
-
         for ann in annotations:
-            if ann in ("RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping"):
-                pattern = rf'@{ann}\s*\(\s*["\']([^"\']+)["\']\s*\)'
+            if ann in ("RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"):
+                pattern = rf'@{ann}\s*\(\s*(?:value\s*=\s*)?["\']([^"\']+)["\']'
                 match = re.search(pattern, source)
                 if match:
                     return match.group(1)
+                
+                pattern2 = rf'@{ann}\s*\(\s*path\s*=\s*["\']([^"\']+)["\']'
+                match2 = re.search(pattern2, source)
+                if match2:
+                    return match2.group(1)
 
         return None
 
@@ -831,3 +1008,281 @@ class JavaParser(BaseParser):
             ))
 
         return dependencies
+
+    def _parse_annotation_with_attributes(self, node, source: str) -> AnnotationInfo:
+        """解析注解及其属性"""
+        ann_text = self._get_node_text(node, source)
+        ann_name = self._parse_annotation_name(node, source)
+        
+        attributes = {}
+        
+        if ann_text:
+            pattern = rf'@{ann_name}\s*\(([^)]*)\)'
+            match = re.search(pattern, ann_text)
+            if match:
+                attrs_str = match.group(1)
+                attributes = self._parse_annotation_attributes(attrs_str)
+        
+        return AnnotationInfo(
+            name=ann_name,
+            attributes=attributes,
+            raw_text=ann_text
+        )
+
+    def _parse_annotation_attributes(self, attrs_str: str) -> dict[str, Any]:
+        """解析注解属性"""
+        attributes = {}
+        
+        if not attrs_str.strip():
+            return attributes
+        
+        simple_value_pattern = r'^\s*"([^"]*)"\s*$'
+        simple_match = re.match(simple_value_pattern, attrs_str)
+        if simple_match:
+            attributes["value"] = simple_match.group(1)
+            return attributes
+        
+        simple_value_pattern2 = r'^\s*\'([^\']*)\'\s*$'
+        simple_match2 = re.match(simple_value_pattern2, attrs_str)
+        if simple_match2:
+            attributes["value"] = simple_match2.group(1)
+            return attributes
+        
+        pattern = r'(\w+)\s*=\s*(?:"([^"]*)"|\'([^\']+)\'|(\d+)|(\w+))'
+        matches = re.findall(pattern, attrs_str)
+        
+        for key, str_val1, str_val2, num_val, bool_val in matches:
+            if str_val1:
+                attributes[key] = str_val1
+            elif str_val2:
+                attributes[key] = str_val2
+            elif num_val:
+                attributes[key] = int(num_val)
+            elif bool_val:
+                attributes[key] = bool_val.lower() == "true"
+            if key in ("produces", "consumes", "params", "headers"):
+                attributes[key] = self._parse_array_value(attrs_str, key)
+        
+        return attributes
+    
+    def _parse_array_value(self, attrs_str: str, key: str) -> list[str]:
+        """解析数组值"""
+        values = []
+        
+        pattern = rf'{key}\s*=\s*\{{([^}}]*)\}}'
+        match = re.search(pattern, attrs_str)
+        if match:
+            array_content = match.group(1)
+            str_pattern = r'"([^"]*)"'
+            values = re.findall(str_pattern, array_content)
+        
+        return values
+
+    def _extract_spring_endpoint_info(self, source: str, annotations: list[str]) -> Optional[SpringEndpointInfo]:
+        """提取Spring端点信息"""
+        endpoint_info = SpringEndpointInfo()
+        
+        http_method_map = {
+            "GetMapping": "GET",
+            "PostMapping": "POST",
+            "PutMapping": "PUT",
+            "DeleteMapping": "DELETE",
+            "PatchMapping": "PATCH",
+        }
+        
+        for ann in annotations:
+            if ann in http_method_map:
+                endpoint_info.method = http_method_map[ann]
+                
+                pattern = rf'@{ann}\s*\(([^)]*)\)'
+                match = re.search(pattern, source)
+                if match:
+                    attrs_str = match.group(1)
+                    attrs = self._parse_annotation_attributes(attrs_str)
+                    
+                    if "value" in attrs:
+                        endpoint_info.path = attrs["value"]
+                    elif "path" in attrs:
+                        endpoint_info.path = attrs["path"]
+                    
+                    if "consumes" in attrs:
+                        consumes = attrs["consumes"]
+                        if isinstance(consumes, str):
+                            endpoint_info.consumes = [consumes]
+                        elif isinstance(consumes, list):
+                            endpoint_info.consumes = consumes
+                    
+                    if "produces" in attrs:
+                        produces = attrs["produces"]
+                        if isinstance(produces, str):
+                            endpoint_info.produces = [produces]
+                        elif isinstance(produces, list):
+                            endpoint_info.produces = produces
+                    
+                    if "params" in attrs:
+                        params = attrs["params"]
+                        if isinstance(params, str):
+                            endpoint_info.params = [params]
+                        elif isinstance(params, list):
+                            endpoint_info.params = params
+                    
+                    if "headers" in attrs:
+                        headers = attrs["headers"]
+                        if isinstance(headers, str):
+                            endpoint_info.headers = [headers]
+                        elif isinstance(headers, list):
+                            endpoint_info.headers = headers
+                
+                return endpoint_info if endpoint_info.path else None
+            
+            elif ann == "RequestMapping":
+                pattern = r'@RequestMapping\s*\(([^)]*)\)'
+                match = re.search(pattern, source)
+                if match:
+                    attrs_str = match.group(1)
+                    attrs = self._parse_annotation_attributes(attrs_str)
+                    
+                    if "value" in attrs:
+                        endpoint_info.path = attrs["value"]
+                    elif "path" in attrs:
+                        endpoint_info.path = attrs["path"]
+                    
+                    if "method" in attrs:
+                        method_str = attrs["method"]
+                        if isinstance(method_str, str):
+                            endpoint_info.method = method_str.upper()
+                    
+                    if "consumes" in attrs:
+                        consumes = attrs["consumes"]
+                        if isinstance(consumes, str):
+                            endpoint_info.consumes = [consumes]
+                        elif isinstance(consumes, list):
+                            endpoint_info.consumes = consumes
+                    
+                    if "produces" in attrs:
+                        produces = attrs["produces"]
+                        if isinstance(produces, str):
+                            endpoint_info.produces = [produces]
+                        elif isinstance(produces, list):
+                            endpoint_info.produces = produces
+                
+                return endpoint_info if endpoint_info.path else None
+        
+        return None
+
+    def _extract_jpa_column_info(self, source: str) -> list[JpaColumnInfo]:
+        """提取JPA列信息"""
+        columns = []
+        
+        pattern = r'@Column\s*\(([^)]*)\)'
+        matches = re.findall(pattern, source)
+        
+        for match in matches:
+            attrs_str = match
+            attrs = self._parse_annotation_attributes(attrs_str)
+            
+            column_info = JpaColumnInfo(
+                name=attrs.get("name"),
+                nullable=attrs.get("nullable", True),
+                unique=attrs.get("unique", False),
+                length=attrs.get("length"),
+                precision=attrs.get("precision"),
+                scale=attrs.get("scale"),
+                column_definition=attrs.get("columnDefinition")
+            )
+            columns.append(column_info)
+        
+        return columns
+
+    def _extract_validation_annotations(self, source: str) -> list[dict[str, Any]]:
+        """提取校验注解信息"""
+        validations = []
+        
+        for ann in self.VALIDATION:
+            pattern = rf'@{ann}\s*(?:\(([^)]*)\))?'
+            matches = re.finditer(pattern, source)
+            
+            for match in matches:
+                attrs_str = match.group(1) or ""
+                attrs = self._parse_annotation_attributes(attrs_str) if attrs_str else {}
+                
+                validations.append({
+                    "name": ann,
+                    "attributes": attrs
+                })
+        
+        return validations
+
+    def _extract_dubbo_service_info(self, source: str, annotations: list[str]) -> Optional[dict[str, Any]]:
+        """提取Dubbo服务信息"""
+        dubbo_info = {}
+        
+        for ann in annotations:
+            if ann in self.DUBBO:
+                pattern = rf'@{ann}\s*\(([^)]*)\)'
+                match = re.search(pattern, source)
+                if match:
+                    attrs_str = match.group(1)
+                    attrs = self._parse_annotation_attributes(attrs_str)
+                    
+                    dubbo_info["annotation"] = ann
+                    if "version" in attrs:
+                        dubbo_info["version"] = attrs["version"]
+                    if "interface" in attrs:
+                        dubbo_info["interface"] = attrs["interface"]
+                    if "group" in attrs:
+                        dubbo_info["group"] = attrs["group"]
+                    if "timeout" in attrs:
+                        dubbo_info["timeout"] = attrs["timeout"]
+                    if "retries" in attrs:
+                        dubbo_info["retries"] = attrs["retries"]
+        
+        return dubbo_info if dubbo_info else None
+
+    def _extract_scheduled_info(self, source: str, annotations: list[str]) -> Optional[dict[str, Any]]:
+        """提取定时任务信息"""
+        scheduled_info = {}
+        
+        if "Scheduled" in annotations:
+            pattern = r'@Scheduled\s*\(([^)]*)\)'
+            match = re.search(pattern, source)
+            if match:
+                attrs_str = match.group(1)
+                attrs = self._parse_annotation_attributes(attrs_str)
+                
+                scheduled_info["annotation"] = "Scheduled"
+                if "cron" in attrs:
+                    scheduled_info["cron"] = attrs["cron"]
+                if "fixedRate" in attrs:
+                    scheduled_info["fixedRate"] = attrs["fixedRate"]
+                if "fixedDelay" in attrs:
+                    scheduled_info["fixedDelay"] = attrs["fixedDelay"]
+                if "initialDelay" in attrs:
+                    scheduled_info["initialDelay"] = attrs["initialDelay"]
+        
+        return scheduled_info if scheduled_info else None
+
+    def _extract_feign_client_info(self, source: str, annotations: list[str]) -> Optional[dict[str, Any]]:
+        """提取Feign客户端信息"""
+        feign_info = {}
+        
+        if "FeignClient" in annotations:
+            pattern = r'@FeignClient\s*\(([^)]*)\)'
+            match = re.search(pattern, source)
+            if match:
+                attrs_str = match.group(1)
+                attrs = self._parse_annotation_attributes(attrs_str)
+                
+                feign_info["annotation"] = "FeignClient"
+                if "name" in attrs:
+                    feign_info["name"] = attrs["name"]
+                if "value" in attrs:
+                    feign_info["name"] = attrs["value"]
+                if "url" in attrs:
+                    feign_info["url"] = attrs["url"]
+                if "path" in attrs:
+                    feign_info["path"] = attrs["path"]
+                if "configuration" in attrs:
+                    feign_info["configuration"] = attrs["configuration"]
+        
+        return feign_info if feign_info else None

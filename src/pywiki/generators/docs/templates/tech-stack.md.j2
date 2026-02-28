@@ -7,9 +7,9 @@
 {% endif %}
 
 {% if frameworks %}
-## 框架
+## {{ labels['frameworks'] if labels.get('frameworks') else 'Frameworks' }}
 
-| 名称 | 版本 | 描述 |
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['version'] }} | {{ labels['description'] }} |
 |------|------|------|
 {% for fw in frameworks %}
 | {{ fw.name }} | {{ fw.version or '-' }} | {{ fw.description }} |
@@ -17,9 +17,9 @@
 {% endif %}
 
 {% if databases %}
-## 数据库
+## {{ labels['databases'] if labels.get('databases') else 'Databases' }}
 
-| 名称 | 类型 | 描述 |
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['type'] if labels.get('type') else 'Type' }} | {{ labels['description'] }} |
 |------|------|------|
 {% for db in databases %}
 | {{ db.name }} | {{ db.type }} | {{ db.description }} |
@@ -27,9 +27,9 @@
 {% endif %}
 
 {% if libraries %}
-## 核心库
+## {{ labels['core_libraries'] if labels.get('core_libraries') else 'Core Libraries' }}
 
-| 名称 | 类别 | 版本 | 描述 |
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['category'] if labels.get('category') else 'Category' }} | {{ labels['version'] }} | {{ labels['description'] }} |
 |------|------|------|------|
 {% for lib in libraries %}
 | {{ lib.name }} | {{ lib.category }} | {{ lib.version or '-' }} | {{ lib.description }} |
@@ -37,9 +37,9 @@
 {% endif %}
 
 {% if tools %}
-## 工具
+## {{ labels['tools'] if labels.get('tools') else 'Tools' }}
 
-| 名称 | 类别 | 描述 |
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['category'] if labels.get('category') else 'Category' }} | {{ labels['description'] }} |
 |------|------|------|
 {% for tool in tools %}
 | {{ tool.name }} | {{ tool.category }} | {{ tool.description }} |
@@ -47,9 +47,9 @@
 {% endif %}
 
 {% if language_stats %}
-## 语言分布
+## {{ labels['language_distribution'] if labels.get('language_distribution') else 'Language Distribution' }}
 
-| 语言 | 文件数 | 占比 |
+| {{ labels['language'] if labels.get('language') else 'Language' }} | {{ labels['files'] if labels.get('files') else 'Files' }} | {{ labels['percentage'] if labels.get('percentage') else 'Percentage' }} |
 |------|--------|------|
 {% for lang, stat in language_stats.items() %}
 | {{ lang }} | {{ stat.files }} | {{ stat.percentage }}% |

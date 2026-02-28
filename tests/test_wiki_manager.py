@@ -47,11 +47,7 @@ def wiki_manager(
     wiki_config: WikiConfig,
 ) -> WikiManager:
     from pywiki.llm.client import LLMClient
-    llm_client = LLMClient(
-        api_key=llm_config.api_key.get_secret_value(),
-        endpoint=llm_config.endpoint,
-        model=llm_config.model,
-    )
+    llm_client = LLMClient.from_config(llm_config)
     return WikiManager(
         project=project_config,
         llm_client=llm_client,
@@ -196,11 +192,7 @@ class TestWikiManagerIntegration:
         )
 
         from pywiki.llm.client import LLMClient
-        llm_client = LLMClient(
-            api_key=llm_config.api_key.get_secret_value(),
-            endpoint=llm_config.endpoint,
-            model=llm_config.model,
-        )
+        llm_client = LLMClient.from_config(llm_config)
 
         manager = WikiManager(
             project=project,

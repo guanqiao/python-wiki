@@ -209,10 +209,16 @@ py src/pywiki/main.py
 
 - **项目管理**：创建、切换、删除项目
 - **文档类型选择**：支持选择要生成的文档类型
+- **语言选择**：支持中文/英文文档生成
 - **一键生成**：一键生成所有选中的文档类型
+- **增量更新**：智能检测代码变更，仅更新受影响的文档
+- **Git 同步**：检测 Git 变更并同步文档
+- **架构分析**：分析项目技术栈、设计模式
+- **隐式知识提取**：提取设计决策、技术债务
 - **进度监控**：实时显示文档生成进度
 - **文档预览**：支持 Markdown 和 Mermaid 图表渲染
 - **智能问答**：基于项目知识库的 AI 问答
+- **ADR 导出**：导出架构决策记录文档
 
 #### 支持的文档类型
 
@@ -228,6 +234,11 @@ py src/pywiki/main.py
 | 开发文档 (development) | 开发指南文档 |
 | 依赖文档 (dependencies) | 依赖关系文档 |
 | 技术设计决策 (tsd) | 技术设计决策记录 |
+| 部署文档 (deployment) | 部署流程和环境配置文档 |
+| 隐式知识 (implicit-knowledge) | 隐式知识提取文档 |
+| 测试覆盖 (test-coverage) | 测试覆盖率分析文档 |
+| 代码质量 (code-quality) | 代码质量分析文档 |
+| 技术设计规范 (technical-design-spec) | 综合性技术设计规范文档 |
 
 ### CLI 模式
 
@@ -236,16 +247,52 @@ py src/pywiki/main.py
 pywiki init /path/to/project --name my-project
 
 # 配置 LLM
-pywiki config-llm --provider openai --api-key sk-xxx --model gpt-4
+pywiki llm-config --set-api-key sk-xxx --set-model gpt-4
 
-# 生成 Wiki
-pywiki generate my-project
+# 查看 LLM 配置
+pywiki llm-config --show
 
-# 列出项目
-pywiki list-projects
+# 生成 Wiki（所有文档类型）
+pywiki generate --all
 
-# 增量更新
-pywiki update my-project
+# 生成指定文档类型
+pywiki generate -t overview -t architecture
+
+# 生成文档（指定语言）
+pywiki generate --all --language en
+
+# 查看项目状态
+pywiki status
+
+# 增量更新文档
+pywiki update
+
+# Git 同步
+pywiki sync
+
+# 分析项目架构
+pywiki analyze
+
+# 提取隐式知识
+pywiki knowledge
+
+# 导出 ADR 文档
+pywiki adr --output ./docs/adr
+
+# 智能问答（单次）
+pywiki qa "这个项目的主要功能是什么？"
+
+# 智能问答（交互模式）
+pywiki qa --interactive
+
+# 搜索代码
+pywiki search "UserService"
+
+# 导出文档
+pywiki export --format html
+
+# 一键修复 Wiki
+pywiki fix
 ```
 
 ## 项目结构

@@ -12,10 +12,12 @@ from pywiki.generators.docs.module_generator import ModuleGenerator
 from pywiki.generators.docs.dependencies_generator import DependenciesGenerator
 from pywiki.generators.docs.config_generator import ConfigGenerator
 from pywiki.generators.docs.development_generator import DevelopmentGenerator
+from pywiki.generators.docs.deployment_generator import DeploymentGenerator
 from pywiki.generators.docs.database_generator import DatabaseGenerator
 from pywiki.generators.docs.tsd_generator import TSDGenerator
 from pywiki.generators.docs.adr_generator import ADRGenerator
 from pywiki.generators.docs.quest_generator import QuestDesignDocGenerator
+from pywiki.generators.docs.technical_design_spec_generator import TechnicalDesignSpecGenerator
 
 __all__ = [
     "BaseDocGenerator",
@@ -28,8 +30,10 @@ __all__ = [
     "DependenciesGenerator",
     "ConfigGenerator",
     "DevelopmentGenerator",
+    "DeploymentGenerator",
     "DatabaseGenerator",
     "TSDGenerator",
     "ADRGenerator",
     "QuestDesignDocGenerator",
+    "TechnicalDesignSpecGenerator",
 ]

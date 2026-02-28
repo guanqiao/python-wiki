@@ -91,6 +91,14 @@ class DependenciesGenerator(BaseDocGenerator):
         import_usage: dict[str, list] = defaultdict(list)
         
         project_prefix = context.project_name.replace("-", "_").split("_")[0].lower()
+        project_language = context.project_language or context.detect_project_language()
+
+        if project_language == "java":
+            java_deps = self._extract_java_dependencies(context)
+            external_deps.update(java_deps.get("external", {}))
+            internal_deps.extend(java_deps.get("internal", []))
+            dep_data["dependency_versions"] = java_deps.get("versions", {})
+            dep_data["build_tool"] = java_deps.get("build_tool", "")
 
         if context.parse_result and context.parse_result.modules:
             for module in context.parse_result.modules:
@@ -151,7 +159,9 @@ class DependenciesGenerator(BaseDocGenerator):
         dep_data["internal"] = internal_deps[:100]
         
         dep_data["dependency_strength"] = self._analyze_dependency_strength(import_usage)
-        dep_data["dependency_versions"] = self._extract_all_versions(context)
+        
+        if not dep_data["dependency_versions"]:
+            dep_data["dependency_versions"] = self._extract_all_versions(context)
 
         try:
             graph = self.dependency_analyzer.analyze_modules(context.parse_result.modules)
@@ -197,6 +207,179 @@ class DependenciesGenerator(BaseDocGenerator):
         })
 
         return dep_data
+
+    def _extract_java_dependencies(self, context: DocGeneratorContext) -> dict[str, Any]:
+        """提取Java项目依赖"""
+        result = {
+            "external": {},
+            "internal": [],
+            "versions": {},
+            "build_tool": "",
+        }
+        
+        pom_path = context.project_path / "pom.xml"
+        if pom_path.exists():
+            result["build_tool"] = "Maven"
+            maven_deps = self._parse_maven_pom(pom_path, context)
+            result["external"].update(maven_deps.get("external", {}))
+            result["versions"].update(maven_deps.get("versions", {}))
+        
+        gradle_path = context.project_path / "build.gradle"
+        gradle_kts_path = context.project_path / "build.gradle.kts"
+        
+        if gradle_path.exists() or gradle_kts_path.exists():
+            if not result["build_tool"]:
+                result["build_tool"] = "Gradle"
+            gradle_file = gradle_path if gradle_path.exists() else gradle_kts_path
+            gradle_deps = self._parse_gradle_build(gradle_file)
+            result["external"].update(gradle_deps.get("external", {}))
+            result["versions"].update(gradle_deps.get("versions", {}))
+        
+        if context.parse_result and context.parse_result.modules:
+            for module in context.parse_result.modules:
+                module_name = module.name
+                for imp in module.imports:
+                    imp_module = imp.module
+                    
+                    if imp_module.startswith("java.") or imp_module.startswith("javax.") or imp_module.startswith("jakarta."):
+                        continue
+                    
+                    if imp_module.startswith("org.springframework.") or imp_module.startswith("com.baomidou."):
+                        base_name = imp_module.split(".")[2] if imp_module.count(".") >= 2 else imp_module.split(".")[1]
+                        group_id = ".".join(imp_module.split(".")[:3]) if imp_module.count(".") >= 2 else imp_module.split(".")[0]
+                        
+                        if base_name not in result["external"]:
+                            version = result["versions"].get(group_id, "")
+                            result["external"][base_name] = {
+                                "name": base_name,
+                                "group_id": group_id,
+                                "version": version,
+                                "category": self._categorize_dependency(base_name),
+                                "description": self._get_dependency_description(base_name),
+                                "usage_count": 1,
+                                "usage_locations": [module_name],
+                                "import_details": [{
+                                    "module": module_name,
+                                    "full_import": imp_module,
+                                }],
+                            }
+                        else:
+                            result["external"][base_name]["usage_count"] += 1
+                            result["external"][base_name]["usage_locations"].append(module_name)
+        
+        return result
+
+    def _parse_maven_pom(self, pom_path: Path, context: DocGeneratorContext) -> dict[str, Any]:
+        """解析Maven pom.xml"""
+        result = {
+            "external": {},
+            "versions": {},
+        }
+        
+        try:
+            content = pom_path.read_text(encoding="utf-8")
+            
+            properties = {}
+            prop_pattern = r'<(\w+(?:\.\w+)*)>\s*([^<]+)\s*</\1>'
+            for match in re.finditer(prop_pattern, content):
+                prop_name = match.group(1)
+                prop_value = match.group(2).strip()
+                properties[prop_name] = prop_value
+            
+            dep_pattern = r'<dependency>\s*<groupId>([^<]+)</groupId>\s*<artifactId>([^<]+)</artifactId>(?:\s*<version>([^<]*)</version>)?'
+            matches = re.findall(dep_pattern, content, re.DOTALL)
+            
+            for group_id, artifact_id, version in matches:
+                group_id = group_id.strip()
+                artifact_id = artifact_id.strip()
+                version = version.strip() if version else ""
+                
+                if version and version.startswith("${"):
+                    prop_name = version[2:-1]
+                    version = properties.get(prop_name, "")
+                
+                if not version:
+                    version = properties.get(f"{artifact_id}.version", "")
+                if not version:
+                    version = properties.get("version", "")
+                
+                result["versions"][artifact_id] = version
+                result["versions"][group_id] = version
+                
+                category = self._categorize_dependency(artifact_id)
+                description = self._get_dependency_description(artifact_id)
+                
+                result["external"][artifact_id] = {
+                    "name": artifact_id,
+                    "group_id": group_id,
+                    "version": version,
+                    "category": category,
+                    "description": description,
+                    "usage_count": 0,
+                    "usage_locations": [],
+                    "import_details": [],
+                }
+            
+            parent_pattern = r'<parent>\s*<groupId>([^<]+)</groupId>\s*<artifactId>([^<]+)</artifactId>\s*<version>([^<]+)</version>'
+            parent_match = re.search(parent_pattern, content, re.DOTALL)
+            if parent_match:
+                parent_group = parent_match.group(1).strip()
+                parent_artifact = parent_match.group(2).strip()
+                parent_version = parent_match.group(3).strip()
+                
+                result["versions"][parent_artifact] = parent_version
+                result["versions"]["parent"] = f"{parent_group}:{parent_artifact}:{parent_version}"
+        
+        except Exception:
+            pass
+        
+        return result
+
+    def _parse_gradle_build(self, gradle_path: Path) -> dict[str, Any]:
+        """解析Gradle build.gradle"""
+        result = {
+            "external": {},
+            "versions": {},
+        }
+        
+        try:
+            content = gradle_path.read_text(encoding="utf-8")
+            
+            implementation_pattern = r'(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testCompileOnly|testRuntimeOnly)\s*[\'"]([^\'":]+):([^\'":]+):?([^\'"]*)[\'"]'
+            matches = re.findall(implementation_pattern, content)
+            
+            for group_id, artifact_id, version in matches:
+                group_id = group_id.strip()
+                artifact_id = artifact_id.strip()
+                version = version.strip() if version else ""
+                
+                result["versions"][artifact_id] = version
+                result["versions"][group_id] = version
+                
+                category = self._categorize_dependency(artifact_id)
+                description = self._get_dependency_description(artifact_id)
+                
+                result["external"][artifact_id] = {
+                    "name": artifact_id,
+                    "group_id": group_id,
+                    "version": version,
+                    "category": category,
+                    "description": description,
+                    "usage_count": 0,
+                    "usage_locations": [],
+                    "import_details": [],
+                }
+            
+            plugin_pattern = r'id\s*\(?[\'"]([^\'"]+)[\'"]\s*\)?\s*version\s*[\'"]([^\'"]+)[\'"]'
+            plugin_matches = re.findall(plugin_pattern, content)
+            
+            for plugin_id, plugin_version in plugin_matches:
+                result["versions"][plugin_id] = plugin_version
+        
+        except Exception:
+            pass
+        
+        return result
 
     def _get_dependency_version(self, name: str, context: DocGeneratorContext) -> str:
         """获取依赖版本"""
@@ -347,20 +530,50 @@ class DependenciesGenerator(BaseDocGenerator):
     def _categorize_dependency(self, name: str) -> str:
         """分类依赖"""
         categories = {
-            "Web框架": ["flask", "django", "fastapi", "starlette", "tornado", "aiohttp", "express", "koa", "nestjs", "spring"],
-            "数据库": ["sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "mongoose", "prisma", "typeorm"],
-            "HTTP": ["requests", "httpx", "urllib3", "aiohttp", "axios", "fetch", "okhttp"],
-            "测试": ["pytest", "unittest", "mock", "hypothesis", "jest", "mocha", "junit"],
+            "Web框架": [
+                "flask", "django", "fastapi", "starlette", "tornado", "aiohttp",
+                "express", "koa", "nestjs", "spring", "spring-boot", "spring-web", "spring-webmvc",
+                "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut",
+                "next", "nuxt", "gatsby", "sveltekit", "remix", "astro"
+            ],
+            "数据库": [
+                "sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "mongoose", "prisma", "typeorm",
+                "hibernate", "mybatis", "jpa", "jooq", "querydsl", "jdbc", "hikari",
+                "drizzle", "sequelize", "mikro-orm", "dexie", "lowdb"
+            ],
+            "HTTP": [
+                "requests", "httpx", "urllib3", "aiohttp", "axios", "fetch", "okhttp",
+                "apache-httpclient", "retrofit", "feign", "resttemplate", "webclient",
+                "ky", "got", "superagent", "node-fetch"
+            ],
+            "测试": [
+                "pytest", "unittest", "mock", "hypothesis", "jest", "mocha", "junit",
+                "testng", "assertj", "mockito", "vitest", "cypress", "playwright",
+                "testing-library", "supertest", "chai", "sinon"
+            ],
             "数据处理": ["pandas", "numpy", "scipy", "polars"],
             "机器学习": ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
-            "GUI": ["pyqt", "pyside", "tkinter"],
-            "CLI": ["click", "typer", "argparse", "commander", "yargs"],
-            "验证": ["pydantic", "marshmallow", "joi", "zod"],
-            "工具": ["rich", "loguru", "python-dotenv", "lodash", "moment"],
-            "日志": ["loguru", "logging", "winston", "log4j"],
-            "配置": ["dotenv", "pydantic_settings", "configparser", "convict"],
-            "异步": ["asyncio", "trio", "anyio", "celery"],
-            "安全": ["cryptography", "passlib", "jwt", "authlib", "bcrypt"],
+            "GUI": ["pyqt", "pyside", "tkinter", "electron", "tauri", "nw.js"],
+            "CLI": ["click", "typer", "argparse", "commander", "yargs", "commander-js", "oclif"],
+            "验证": ["pydantic", "marshmallow", "cerberus", "joi", "zod", "yup", "class-validator", "ajv"],
+            "工具": ["rich", "loguru", "python-dotenv", "lodash", "moment", "dayjs", "date-fns", "ramda"],
+            "日志": ["loguru", "logging", "winston", "log4j", "logback", "slf4j", "pino", "bunyan"],
+            "配置": ["dotenv", "pydantic_settings", "configparser", "convict", "convict", "config", "nconf"],
+            "异步": ["asyncio", "trio", "anyio", "celery", "bull", "rabbitmq", "kafka"],
+            "安全": ["cryptography", "passlib", "jwt", "authlib", "bcrypt", "passport", "helmet", "cors"],
+            "微服务": [
+                "spring-cloud", "dubbo", "grpc", "eureka", "nacos", "consul", "etcd",
+                "kafka", "rabbitmq", "activemq", "zeromq", "nats"
+            ],
+            "消息队列": ["kafka", "rabbitmq", "activemq", "zeromq", "nats", "pulsar", "rocketmq"],
+            "缓存": ["redis", "memcached", "caffeine", "guava", "ehcache", "hazelcast"],
+            "监控": ["prometheus", "grafana", "elk", "zipkin", "jaeger", "sentry", "datadog"],
+            "构建工具": ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo", "maven", "gradle"],
+            "前端框架": ["react", "vue", "angular", "svelte", "solid", "preact", "alpine", "htmx"],
+            "UI组件库": ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap", "bulma"],
+            "状态管理": ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai", "valtio"],
+            "GraphQL": ["graphql", "apollo", "urql", "relay", "graphql-yoga", "graphql-tools"],
+            "API文档": ["swagger", "openapi", "springdoc", "swagger-ui", "redoc"],
         }
 
         name_lower = name.lower()
@@ -388,6 +601,41 @@ class DependenciesGenerator(BaseDocGenerator):
             "click": "CLI 框架",
             "rich": "终端美化库",
             "loguru": "日志库",
+            "spring-boot": "Spring Boot 框架",
+            "spring-webmvc": "Spring Web MVC",
+            "spring-webflux": "Spring WebFlux 响应式框架",
+            "hibernate": "Hibernate ORM 框架",
+            "mybatis": "MyBatis 持久层框架",
+            "jpa": "Java Persistence API",
+            "junit": "Java 单元测试框架",
+            "mockito": "Java Mock 测试框架",
+            "okhttp": "Square HTTP 客户端",
+            "retrofit": "Square REST 客户端",
+            "logback": "Java 日志框架",
+            "slf4j": "Java 日志门面",
+            "express": "Node.js Web 框架",
+            "nestjs": "Node.js 企业级框架",
+            "react": "React 前端框架",
+            "vue": "Vue 前端框架",
+            "angular": "Angular 前端框架",
+            "typescript": "TypeScript 语言",
+            "prisma": "Prisma ORM",
+            "typeorm": "TypeORM 框架",
+            "mongoose": "MongoDB ODM",
+            "jest": "JavaScript 测试框架",
+            "vitest": "Vite 测试框架",
+            "axios": "HTTP 客户端",
+            "zod": "TypeScript 数据验证",
+            "winston": "Node.js 日志库",
+            "tailwind": "Tailwind CSS 框架",
+            "antd": "Ant Design UI 组件库",
+            "redux": "Redux 状态管理",
+            "graphql": "GraphQL 查询语言",
+            "kafka": "Apache Kafka 消息队列",
+            "redis": "Redis 缓存数据库",
+            "mongodb": "MongoDB 文档数据库",
+            "mysql": "MySQL 关系数据库",
+            "postgresql": "PostgreSQL 关系数据库",
         }
         
         return descriptions.get(name.lower(), "")
