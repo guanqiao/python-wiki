@@ -4,6 +4,7 @@
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -14,6 +15,7 @@ from pywiki.generators.docs.base import (
     DocType,
 )
 from pywiki.config.models import Language
+from pywiki.monitor.logger import logger
 
 
 class OverviewGenerator(BaseDocGenerator):
@@ -57,7 +59,7 @@ class OverviewGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="项目概述文档生成成功",
+                message=self.labels.get("overview_success", "Overview document generated successfully"),
                 metadata={"project_info": project_info},
             )
 
@@ -66,7 +68,7 @@ class OverviewGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     async def _collect_project_info(self, context: DocGeneratorContext) -> dict[str, Any]:
@@ -144,7 +146,7 @@ class OverviewGenerator(BaseDocGenerator):
         if description_parts:
             return "\n\n".join(description_parts)
         
-        return f"{context.project_name} 项目文档"
+        return f"{context.project_name} {self.labels.get('project_documentation', 'Project Documentation')}"
 
     def _find_main_module(self, modules: list, project_name: str) -> Optional[Any]:
         """查找主模块"""
@@ -197,9 +199,9 @@ class OverviewGenerator(BaseDocGenerator):
             class_count = sum(len(m.classes) for m in context.parse_result.modules)
             func_count = sum(len(m.functions) for m in context.parse_result.modules)
             
-            features.append(f"包含 {module_count} 个模块")
-            features.append(f"定义了 {class_count} 个类")
-            features.append(f"提供了 {func_count} 个函数")
+            features.append(self.labels.get("contains_modules", "Contains {} modules").format(module_count))
+            features.append(self.labels.get("defined_classes", "Defines {} classes").format(class_count))
+            features.append(self.labels.get("provided_functions", "Provides {} functions").format(func_count))
 
         return features[:15]
 
@@ -234,9 +236,9 @@ class OverviewGenerator(BaseDocGenerator):
                         if "property" in d.lower():
                             has_property = True
                         elif "cached" in d.lower() or "lru_cache" in d.lower():
-                            decorator_types.add("缓存装饰器")
+                            decorator_types.add(self.labels.get("caching_decorator", "Caching Decorator"))
                         elif "retry" in d.lower():
-                            decorator_types.add("重试机制")
+                            decorator_types.add(self.labels.get("retry_mechanism", "Retry Mechanism"))
             
             for cls in module.classes:
                 if hasattr(cls, 'is_dataclass') and cls.is_dataclass:
@@ -265,21 +267,21 @@ class OverviewGenerator(BaseDocGenerator):
                         has_property = True
         
         if has_async:
-            features.append("异步编程支持")
+            features.append(self.labels.get("async_support", "Async Programming Support"))
         if has_dataclass:
-            features.append("数据类支持")
+            features.append(self.labels.get("dataclass_support", "Dataclass Support"))
         if has_context_manager:
-            features.append("上下文管理器支持")
+            features.append(self.labels.get("context_manager_support", "Context Manager Support"))
         if has_iterator:
-            features.append("迭代器支持")
+            features.append(self.labels.get("iterator_support", "Iterator Support"))
         if has_decorator:
-            features.append("装饰器模式")
+            features.append(self.labels.get("decorator_pattern", "Decorator Pattern"))
         if has_property:
-            features.append("属性访问器")
+            features.append(self.labels.get("property_accessor", "Property Accessor"))
         if has_classmethod:
-            features.append("类方法支持")
+            features.append(self.labels.get("classmethod_support", "Classmethod Support"))
         if has_staticmethod:
-            features.append("静态方法支持")
+            features.append(self.labels.get("staticmethod_support", "Staticmethod Support"))
         
         features.extend(list(decorator_types)[:3])
         
@@ -315,7 +317,7 @@ class OverviewGenerator(BaseDocGenerator):
                         languages.add(ext)
             
             if languages:
-                tech_stack["语言"] = [ext.lstrip(".") for ext in languages]
+                tech_stack[self.labels.get("language", "Language")] = [ext.lstrip(".") for ext in languages]
 
         return tech_stack
 
@@ -336,16 +338,16 @@ class OverviewGenerator(BaseDocGenerator):
                 import_counts[base_module] = import_counts.get(base_module, 0) + 1
         
         categories = {
-            "Web框架": ["flask", "django", "fastapi", "starlette", "tornado", "aiohttp", "express", "koa", "nestjs", "spring"],
-            "数据库": ["sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "mongoose", "prisma", "typeorm"],
-            "HTTP客户端": ["requests", "httpx", "aiohttp", "urllib3", "axios", "fetch", "okhttp"],
-            "测试": ["pytest", "unittest", "hypothesis", "jest", "mocha", "junit", "mockito"],
-            "数据处理": ["pandas", "numpy", "scipy", "polars"],
-            "机器学习": ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
-            "CLI": ["click", "typer", "argparse", "commander", "yargs"],
-            "验证": ["pydantic", "marshmallow", "cerberus", "joi", "zod"],
-            "日志": ["loguru", "logging", "winston", "log4j", "slf4j"],
-            "配置": ["dotenv", "pydantic_settings", "configparser", "convict"],
+            self.labels.get("web_frameworks", "Web Frameworks"): ["flask", "django", "fastapi", "starlette", "tornado", "aiohttp", "express", "koa", "nestjs", "spring"],
+            self.labels.get("databases_tech", "Databases"): ["sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "mongoose", "prisma", "typeorm"],
+            self.labels.get("http_clients", "HTTP Clients"): ["requests", "httpx", "aiohttp", "urllib3", "axios", "fetch", "okhttp"],
+            self.labels.get("testing", "Testing"): ["pytest", "unittest", "hypothesis", "jest", "mocha", "junit", "mockito"],
+            self.labels.get("data_processing", "Data Processing"): ["pandas", "numpy", "scipy", "polars"],
+            self.labels.get("machine_learning", "Machine Learning"): ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
+            self.labels.get("cli_tools", "CLI"): ["click", "typer", "argparse", "commander", "yargs"],
+            self.labels.get("validation", "Validation"): ["pydantic", "marshmallow", "cerberus", "joi", "zod"],
+            self.labels.get("logging_tech", "Logging"): ["loguru", "logging", "winston", "log4j", "slf4j"],
+            self.labels.get("config_tech", "Configuration"): ["dotenv", "pydantic_settings", "configparser", "convict"],
         }
         
         for module_name, count in import_counts.items():
@@ -378,15 +380,15 @@ class OverviewGenerator(BaseDocGenerator):
                     deps = {d.split("[")[0]: "" for d in data["project"].get("dependencies", [])}
 
                 categories = {
-                    "Web框架": ["flask", "django", "fastapi", "starlette", "tornado", "aiohttp"],
-                    "GUI": ["pyqt", "pyside", "tkinter", "wxpython"],
-                    "数据处理": ["pandas", "numpy", "scipy", "polars"],
-                    "机器学习": ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
-                    "数据库": ["sqlalchemy", "pymongo", "redis", "psycopg"],
-                    "HTTP客户端": ["requests", "httpx", "aiohttp", "urllib3"],
-                    "测试": ["pytest", "unittest", "hypothesis"],
-                    "CLI": ["click", "typer", "argparse"],
-                    "验证": ["pydantic", "marshmallow", "cerberus"],
+                    self.labels.get("web_frameworks", "Web Frameworks"): ["flask", "django", "fastapi", "starlette", "tornado", "aiohttp"],
+                    self.labels.get("gui_frameworks", "GUI"): ["pyqt", "pyside", "tkinter", "wxpython"],
+                    self.labels.get("data_processing", "Data Processing"): ["pandas", "numpy", "scipy", "polars"],
+                    self.labels.get("machine_learning", "Machine Learning"): ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
+                    self.labels.get("databases_tech", "Databases"): ["sqlalchemy", "pymongo", "redis", "psycopg"],
+                    self.labels.get("http_clients", "HTTP Clients"): ["requests", "httpx", "aiohttp", "urllib3"],
+                    self.labels.get("testing", "Testing"): ["pytest", "unittest", "hypothesis"],
+                    self.labels.get("cli_tools", "CLI"): ["click", "typer", "argparse"],
+                    self.labels.get("validation", "Validation"): ["pydantic", "marshmallow", "cerberus"],
                 }
 
                 for dep_name in deps.keys():
@@ -415,16 +417,16 @@ class OverviewGenerator(BaseDocGenerator):
                 dependencies = re.findall(r"<groupId>([^<]+)</groupId>\s*<artifactId>([^<]+)</artifactId>", content)
                 
                 categories = {
-                    "Web框架": ["spring-boot", "spring-webmvc", "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut"],
-                    "ORM框架": ["hibernate", "mybatis", "jpa", "jooq", "querydsl"],
-                    "数据库": ["mysql", "postgresql", "mongodb", "redis", "h2", "oracle"],
-                    "测试": ["junit", "mockito", "testng", "assertj", "cucumber"],
-                    "构建工具": ["maven", "gradle"],
-                    "日志": ["log4j", "logback", "slf4j"],
-                    "JSON处理": ["jackson", "gson", "fastjson"],
-                    "HTTP客户端": ["okhttp", "apache-httpclient", "retrofit", "feign"],
-                    "微服务": ["spring-cloud", "dubbo", "grpc", "eureka", "nacos"],
-                    "安全": ["spring-security", "shiro", "jwt"],
+                    self.labels.get("web_frameworks", "Web Frameworks"): ["spring-boot", "spring-webmvc", "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut"],
+                    self.labels.get("orm_frameworks", "ORM Frameworks"): ["hibernate", "mybatis", "jpa", "jooq", "querydsl"],
+                    self.labels.get("databases_tech", "Databases"): ["mysql", "postgresql", "mongodb", "redis", "h2", "oracle"],
+                    self.labels.get("testing", "Testing"): ["junit", "mockito", "testng", "assertj", "cucumber"],
+                    self.labels.get("build_tools", "Build Tools"): ["maven", "gradle"],
+                    self.labels.get("logging_tech", "Logging"): ["log4j", "logback", "slf4j"],
+                    self.labels.get("json_processing", "JSON Processing"): ["jackson", "gson", "fastjson"],
+                    self.labels.get("http_clients", "HTTP Clients"): ["okhttp", "apache-httpclient", "retrofit", "feign"],
+                    self.labels.get("microservices", "Microservices"): ["spring-cloud", "dubbo", "grpc", "eureka", "nacos"],
+                    self.labels.get("security", "Security"): ["spring-security", "shiro", "jwt"],
                 }
 
                 for group_id, artifact_id in dependencies:
@@ -451,16 +453,16 @@ class OverviewGenerator(BaseDocGenerator):
                 implementations += re.findall(r"compile\s*['\"]([^'\":]+):([^'\":]+)", content)
                 
                 categories = {
-                    "Web框架": ["spring-boot", "spring-webmvc", "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut"],
-                    "ORM框架": ["hibernate", "mybatis", "jpa", "jooq", "querydsl"],
-                    "数据库": ["mysql", "postgresql", "mongodb", "redis", "h2", "oracle"],
-                    "测试": ["junit", "mockito", "testng", "assertj", "cucumber"],
-                    "构建工具": ["maven", "gradle"],
-                    "日志": ["log4j", "logback", "slf4j"],
-                    "JSON处理": ["jackson", "gson", "fastjson"],
-                    "HTTP客户端": ["okhttp", "apache-httpclient", "retrofit", "feign"],
-                    "微服务": ["spring-cloud", "dubbo", "grpc", "eureka", "nacos"],
-                    "安全": ["spring-security", "shiro", "jwt"],
+                    self.labels.get("web_frameworks", "Web Frameworks"): ["spring-boot", "spring-webmvc", "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut"],
+                    self.labels.get("orm_frameworks", "ORM Frameworks"): ["hibernate", "mybatis", "jpa", "jooq", "querydsl"],
+                    self.labels.get("databases_tech", "Databases"): ["mysql", "postgresql", "mongodb", "redis", "h2", "oracle"],
+                    self.labels.get("testing", "Testing"): ["junit", "mockito", "testng", "assertj", "cucumber"],
+                    self.labels.get("build_tools", "Build Tools"): ["maven", "gradle"],
+                    self.labels.get("logging_tech", "Logging"): ["log4j", "logback", "slf4j"],
+                    self.labels.get("json_processing", "JSON Processing"): ["jackson", "gson", "fastjson"],
+                    self.labels.get("http_clients", "HTTP Clients"): ["okhttp", "apache-httpclient", "retrofit", "feign"],
+                    self.labels.get("microservices", "Microservices"): ["spring-cloud", "dubbo", "grpc", "eureka", "nacos"],
+                    self.labels.get("security", "Security"): ["spring-security", "shiro", "jwt"],
                 }
 
                 for group_id, artifact_id in implementations:
@@ -493,16 +495,16 @@ class OverviewGenerator(BaseDocGenerator):
                 deps.update(data.get("devDependencies", {}))
 
                 categories = {
-                    "前端框架": ["react", "vue", "angular", "svelte", "next", "nuxt", "gatsby", "solid"],
-                    "UI组件库": ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap"],
-                    "状态管理": ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai"],
-                    "构建工具": ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo"],
-                    "测试": ["jest", "vitest", "mocha", "cypress", "playwright", "testing-library"],
-                    "HTTP客户端": ["axios", "fetch", "ky", "got", "superagent"],
-                    "类型检查": ["typescript", "flow"],
-                    "代码质量": ["eslint", "prettier", "husky", "lint-staged"],
-                    "后端框架": ["express", "nestjs", "fastify", "koa", "hapi", "trpc"],
-                    "数据库": ["prisma", "typeorm", "sequelize", "mongoose", "drizzle"],
+                    self.labels.get("frontend_frameworks", "Frontend Frameworks"): ["react", "vue", "angular", "svelte", "next", "nuxt", "gatsby", "solid"],
+                    self.labels.get("ui_libraries", "UI Libraries"): ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap"],
+                    self.labels.get("state_management", "State Management"): ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai"],
+                    self.labels.get("build_tools", "Build Tools"): ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo"],
+                    self.labels.get("testing", "Testing"): ["jest", "vitest", "mocha", "cypress", "playwright", "testing-library"],
+                    self.labels.get("http_clients", "HTTP Clients"): ["axios", "fetch", "ky", "got", "superagent"],
+                    self.labels.get("type_checking", "Type Checking"): ["typescript", "flow"],
+                    self.labels.get("code_quality", "Code Quality"): ["eslint", "prettier", "husky", "lint-staged"],
+                    self.labels.get("backend_frameworks", "Backend Frameworks"): ["express", "nestjs", "fastify", "koa", "hapi", "trpc"],
+                    self.labels.get("databases_tech", "Databases"): ["prisma", "typeorm", "sequelize", "mongoose", "drizzle"],
                     "GraphQL": ["graphql", "apollo", "urql", "relay"],
                 }
 
@@ -732,7 +734,8 @@ class OverviewGenerator(BaseDocGenerator):
         
         code_stats = project_info.get("code_stats", {})
         
-        prompt = f"""请分析以下项目信息，生成更详细的项目概述：
+        if self.language == Language.ZH:
+            prompt = f"""请分析以下项目信息，生成更详细的项目概述：
 
 项目名称: {context.project_name}
 模块数量: {code_stats.get('total_modules', 0)}
@@ -749,8 +752,32 @@ class OverviewGenerator(BaseDocGenerator):
     "target_users": "目标用户群体",
     "use_cases": ["使用场景1", "使用场景2"]
 }}
-"""
 
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Please analyze the following project information and generate a detailed project overview:
+
+Project Name: {context.project_name}
+Number of Modules: {code_stats.get('total_modules', 0)}
+Number of Classes: {code_stats.get('total_classes', 0)}
+Number of Functions: {code_stats.get('total_functions', 0)}
+Async Functions: {code_stats.get('async_functions', 0) + code_stats.get('async_methods', 0)}
+Tech Stack: {json.dumps(project_info.get('tech_stack', {}), ensure_ascii=False)}
+Features: {json.dumps(project_info.get('features', []), ensure_ascii=False)}
+
+Please return in JSON format:
+{{
+    "enhanced_description": "More detailed project description",
+    "key_features": ["core feature 1", "core feature 2"],
+    "target_users": "Target user group",
+    "use_cases": ["use case 1", "use case 2"]
+}}
+
+Please respond in English."""
+
+        start_time = time.time()
+        prompt_length = len(prompt)
+        logger.info(f"Overview LLM 增强开始: project={context.project_name}, prompt_length={prompt_length}")
         try:
             response = await llm_client.agenerate(prompt)
             start = response.find("{")
@@ -760,7 +787,13 @@ class OverviewGenerator(BaseDocGenerator):
                 enhanced["description"] = result.get("enhanced_description", "")
                 if result.get("key_features"):
                     enhanced["features"] = result["key_features"]
-        except Exception:
-            pass
+                duration_ms = (time.time() - start_time) * 1000
+                logger.info(f"Overview LLM 增强完成: 耗时={duration_ms:.0f}ms, 解析成功")
+            else:
+                duration_ms = (time.time() - start_time) * 1000
+                logger.warning(f"Overview LLM 增强完成但解析失败: 耗时={duration_ms:.0f}ms, 响应格式不正确")
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(f"Overview LLM 增强失败: 耗时={duration_ms:.0f}ms, 错误={str(e)}")
 
         return enhanced

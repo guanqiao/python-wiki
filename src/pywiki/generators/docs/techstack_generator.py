@@ -85,7 +85,7 @@ class TechStackGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="技术栈文档生成成功",
+                message=self.labels.get("techstack_doc_success", "Tech stack documentation generated successfully"),
                 metadata={"analysis": analysis.summary},
             )
 
@@ -94,7 +94,7 @@ class TechStackGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _enhance_with_parse_result(self, analysis: TechStackAnalysis, context: DocGeneratorContext) -> None:
@@ -379,7 +379,8 @@ class TechStackGenerator(BaseDocGenerator):
     ) -> Optional[TechStackAnalysis]:
         """使用 LLM 增强技术栈分析"""
 
-        prompt = f"""基于以下技术栈分析，提供更深入的见解：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下技术栈分析，提供更深入的见解：
 
 项目: {context.project_name}
 框架: {[f.name for f in analysis.frameworks]}
@@ -393,7 +394,25 @@ class TechStackGenerator(BaseDocGenerator):
     "potential_risks": ["风险1", "风险2"],
     "optimization_suggestions": ["优化建议1", "优化建议2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following tech stack analysis, provide deeper insights:
+
+Project: {context.project_name}
+Frameworks: {[f.name for f in analysis.frameworks]}
+Databases: {[d.name for d in analysis.databases]}
+Core Libraries: {[l.name for l in analysis.libraries[:5]]}
+
+Please analyze and return JSON:
+{{
+    "architecture_pattern": "Architecture pattern (e.g., MVC, microservices)",
+    "tech_maturity": "Technology maturity assessment",
+    "potential_risks": ["risk1", "risk2"],
+    "optimization_suggestions": ["suggestion1", "suggestion2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

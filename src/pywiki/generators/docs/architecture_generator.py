@@ -114,7 +114,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="架构文档生成成功",
+                message=self.labels.get("architecture_doc_success", "Architecture documentation generated successfully"),
                 metadata={"architecture_data": arch_data.get("summary", {})},
             )
 
@@ -123,7 +123,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     async def _analyze_architecture(self, context: DocGeneratorContext, project_language: str) -> dict[str, Any]:
@@ -203,7 +203,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     def _detect_architecture_style(self, context: DocGeneratorContext) -> str:
         """检测架构风格"""
         if not context.parse_result or not context.parse_result.modules:
-            return "单体架构"
+            return self.labels.get("monolithic_arch", "Monolithic Architecture")
         
         modules = context.parse_result.modules
         module_names = [m.name.lower() if hasattr(m, "name") else str(m).lower() for m in modules]
@@ -217,17 +217,17 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         adapter_count = sum(1 for name in module_names if "adapter" in name)
         
         if event_count > 2:
-            return "事件驱动架构"
+            return self.labels.get("event_driven_arch", "Event-Driven Architecture")
         if command_count > 0 and query_count > 0:
-            return "CQRS 架构"
+            return self.labels.get("cqrs_arch", "CQRS Architecture")
         if adapter_count > 1:
-            return "六边形架构"
+            return self.labels.get("hexagonal_arch", "Hexagonal Architecture")
         if service_count > 5 and controller_count > 2:
-            return "微服务架构"
+            return self.labels.get("microservice_arch", "Microservice Architecture")
         if controller_count > 0 and service_count > 0 and repo_count > 0:
-            return "分层架构"
+            return self.labels.get("layered_arch", "Layered Architecture")
         
-        return "单体架构"
+        return self.labels.get("monolithic_arch", "Monolithic Architecture")
 
     def _generate_architecture_diagram(self, context: DocGeneratorContext) -> str:
         """生成智能架构图"""
@@ -237,7 +237,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         return self.arch_diagram_gen.generate_from_parse_result(
             context.parse_result,
             context.project_name,
-            f"{context.project_name} 系统架构"
+            f"{context.project_name} {self.labels.get('system_arch', 'System Architecture')}"
         )
 
     def _generate_package_diagram(self, context: DocGeneratorContext) -> str:
@@ -248,7 +248,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         return self.package_diagram_gen.generate_from_parse_result(
             context.parse_result,
             context.project_name,
-            f"{context.project_name} 包依赖关系"
+            f"{context.project_name} {self.labels.get('package_deps', 'Package Dependencies')}"
         )
 
     def _generate_data_flow_diagram(self, context: DocGeneratorContext) -> str:
@@ -265,7 +265,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
             "id": "client",
             "name": "Client",
             "type": "external_entity",
-            "description": "外部客户端",
+            "description": self.labels.get("external_client", "External Client"),
         })
         
         for module in modules:
@@ -277,7 +277,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                     "id": self._sanitize_id(module_name),
                     "name": module_name.split(".")[-1],
                     "type": "process",
-                    "description": "API 入口",
+                    "description": self.labels.get("api_entry", "API Entry"),
                 })
                 flows.append({
                     "source": "client",
@@ -289,18 +289,18 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                     "id": self._sanitize_id(module_name),
                     "name": module_name.split(".")[-1],
                     "type": "process",
-                    "description": "业务处理",
+                    "description": self.labels.get("business_processing", "Business Processing"),
                 })
             elif any(kw in name_lower for kw in ["repository", "dao", "store", "db", "database"]):
                 nodes.append({
                     "id": self._sanitize_id(module_name),
                     "name": module_name.split(".")[-1],
                     "type": "data_store",
-                    "description": "数据存储",
+                    "description": self.labels.get("data_storage", "Data Storage"),
                 })
         
-        api_nodes = [n for n in nodes if "API" in n.get("description", "")]
-        service_nodes = [n for n in nodes if "业务" in n.get("description", "")]
+        api_nodes = [n for n in nodes if "API" in n.get("description", "") or "Entry" in n.get("description", "")]
+        service_nodes = [n for n in nodes if "Business" in n.get("description", "") or "业务" in n.get("description", "")]
         data_nodes = [n for n in nodes if n.get("type") == "data_store"]
         
         for api in api_nodes:
@@ -308,7 +308,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 flows.append({
                     "source": api["id"],
                     "target": svc["id"],
-                    "data_name": "请求",
+                    "data_name": self.labels.get("request", "Request"),
                 })
         
         for svc in service_nodes:
@@ -316,7 +316,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 flows.append({
                     "source": svc["id"],
                     "target": data["id"],
-                    "data_name": "数据操作",
+                    "data_name": self.labels.get("data_operation", "Data Operation"),
                 })
         
         data = {"nodes": nodes[:12], "flows": flows[:20]}
@@ -534,81 +534,81 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         layers = []
 
         layer_patterns = {
-            "表现层": {
+            self.labels.get("presentation_layer", "Presentation Layer"): {
                 "keywords": ["api", "controller", "view", "handler", "endpoint", "route", "router", "http", "rest", "graphql", "web"],
-                "description": "处理外部请求，负责数据展示和用户交互",
+                "description": self.labels.get("presentation_desc", "Handles external requests, responsible for data display and user interaction"),
             },
-            "业务层": {
+            self.labels.get("business_layer", "Business Layer"): {
                 "keywords": ["service", "business", "domain", "usecase", "application", "logic", "manager", "processor"],
-                "description": "实现核心业务逻辑和业务规则",
+                "description": self.labels.get("business_desc", "Implements core business logic and business rules"),
             },
-            "数据层": {
+            self.labels.get("data_layer", "Data Layer"): {
                 "keywords": ["repository", "dao", "model", "entity", "data", "persistence", "store", "mapper", "schema"],
-                "description": "负责数据持久化和数据访问",
+                "description": self.labels.get("data_desc", "Responsible for data persistence and data access"),
             },
-            "基础设施层": {
+            self.labels.get("infrastructure_layer", "Infrastructure Layer"): {
                 "keywords": ["infrastructure", "config", "util", "common", "helper", "lib", "core", "base", "foundation"],
-                "description": "提供技术支持和基础设施服务",
+                "description": self.labels.get("infrastructure_desc", "Provides technical support and infrastructure services"),
             },
-            "代理层": {
+            self.labels.get("proxy_layer", "Proxy Layer"): {
                 "keywords": ["agent", "broker", "proxy", "client", "adapter", "connector"],
-                "description": "负责与外部系统交互和集成",
+                "description": self.labels.get("proxy_desc", "Responsible for interacting and integrating with external systems"),
             },
         }
 
         java_layer_patterns = {
-            "表现层": {
+            self.labels.get("presentation_layer", "Presentation Layer"): {
                 "keywords": ["controller", "restcontroller", "handler", "endpoint", "api", "web", "servlet", "filter"],
                 "annotations": ["@Controller", "@RestController", "@RequestMapping", "@GetMapping", "@PostMapping"],
-                "description": "处理 HTTP 请求，负责 API 端点和 Web 界面",
+                "description": self.labels.get("java_presentation_desc", "Handles HTTP requests, responsible for API endpoints and web interface"),
             },
-            "业务层": {
+            self.labels.get("business_layer", "Business Layer"): {
                 "keywords": ["service", "serviceimpl", "business", "domain", "usecase", "manager", "processor", "facade"],
                 "annotations": ["@Service", "@Transactional", "@Component"],
-                "description": "实现核心业务逻辑和业务规则",
+                "description": self.labels.get("business_desc", "Implements core business logic and business rules"),
             },
-            "数据层": {
+            self.labels.get("data_layer", "Data Layer"): {
                 "keywords": ["repository", "dao", "mapper", "entity", "model", "persistence", "jpa", "crud"],
                 "annotations": ["@Repository", "@Entity", "@Table", "@Mapper"],
-                "description": "负责数据持久化和数据访问",
+                "description": self.labels.get("data_desc", "Responsible for data persistence and data access"),
             },
-            "基础设施层": {
+            self.labels.get("infrastructure_layer", "Infrastructure Layer"): {
                 "keywords": ["config", "configuration", "util", "common", "helper", "exception", "aspect", "interceptor"],
                 "annotations": ["@Configuration", "@Component", "@Aspect", "@Bean"],
-                "description": "提供技术支持和基础设施服务",
+                "description": self.labels.get("infrastructure_desc", "Provides technical support and infrastructure services"),
             },
-            "DTO层": {
+            self.labels.get("dto_layer", "DTO Layer"): {
                 "keywords": ["dto", "vo", "request", "response", "form", "command", "query"],
                 "annotations": [],
-                "description": "数据传输对象，用于层间数据传递",
+                "description": self.labels.get("dto_desc", "Data Transfer Objects for inter-layer data transfer"),
             },
         }
 
         typescript_layer_patterns = {
-            "表现层": {
+            self.labels.get("presentation_layer", "Presentation Layer"): {
                 "keywords": ["controller", "handler", "endpoint", "api", "route", "resolver", "gateway"],
                 "decorators": ["@Controller", "@Get", "@Post", "@Put", "@Delete", "@Patch", "@Resolver"],
-                "description": "处理 HTTP 请求和 GraphQL 解析器",
+                "description": self.labels.get("ts_presentation_desc", "Handles HTTP requests and GraphQL resolvers"),
             },
-            "业务层": {
+            self.labels.get("business_layer", "Business Layer"): {
                 "keywords": ["service", "business", "domain", "usecase", "manager", "processor", "provider"],
                 "decorators": ["@Service", "@Injectable", "@Provider"],
-                "description": "实现核心业务逻辑和业务规则",
+                "description": self.labels.get("business_desc", "Implements core business logic and business rules"),
             },
-            "数据层": {
+            self.labels.get("data_layer", "Data Layer"): {
                 "keywords": ["repository", "dao", "mapper", "entity", "model", "schema", "prisma", "typeorm"],
                 "decorators": ["@Entity", "@Repository", "@EntityRepository"],
-                "description": "负责数据持久化和数据访问",
+                "description": self.labels.get("data_desc", "Responsible for data persistence and data access"),
             },
-            "基础设施层": {
+            self.labels.get("infrastructure_layer", "Infrastructure Layer"): {
                 "keywords": ["config", "module", "middleware", "guard", "interceptor", "filter", "pipe", "util", "common"],
                 "decorators": ["@Module", "@Middleware", "@UseGuards", "@UseInterceptors", "@UsePipes"],
-                "description": "提供技术支持和基础设施服务",
+                "description": self.labels.get("infrastructure_desc", "Provides technical support and infrastructure services"),
             },
-            "DTO层": {
+            self.labels.get("dto_layer", "DTO Layer"): {
                 "keywords": ["dto", "vo", "input", "output", "request", "response", "interface", "type"],
                 "decorators": [],
-                "description": "数据传输对象和类型定义",
+                "description": self.labels.get("ts_dto_desc", "Data Transfer Objects and type definitions"),
             },
         }
 
@@ -880,7 +880,8 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         quality_metrics = arch_data.get("quality_metrics", {})
         layers = arch_data.get("layers", [])
 
-        prompt = f"""基于以下架构分析，提供更深入的架构洞察：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下架构分析，提供更深入的架构洞察：
 
 项目: {context.project_name}
 分层: {[l['name'] for l in layers]}
@@ -899,7 +900,30 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     "improvement_suggestions": ["改进建议1", "改进建议2"],
     "risk_assessment": "风险评估"
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following architecture analysis, provide deeper architectural insights:
+
+Project: {context.project_name}
+Layers: {[l['name'] for l in layers]}
+Modules: {quality_metrics.get('module_count', 0)}
+Classes: {quality_metrics.get('class_count', 0)}
+Coupling: {quality_metrics.get('coupling', {}).get('level', 'unknown')}
+Cohesion: {quality_metrics.get('cohesion', {}).get('level', 'unknown')}
+Circular Dependencies: {len(arch_data.get('circular_dependencies', []))}
+Hot Spots: {len(arch_data.get('hot_spots', []))}
+
+Please return in JSON format:
+{{
+    "architecture_style": "Architecture style (e.g., layered architecture, microservices)",
+    "strengths": ["strength1", "strength2"],
+    "weaknesses": ["weakness1", "weakness2"],
+    "improvement_suggestions": ["suggestion1", "suggestion2"],
+    "risk_assessment": "Risk assessment"
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

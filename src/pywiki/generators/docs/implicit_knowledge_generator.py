@@ -76,7 +76,7 @@ class ImplicitKnowledgeGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="隐性知识文档生成成功",
+                message=self.labels.get("implicit_knowledge_doc_success", "Implicit knowledge documentation generated successfully"),
                 metadata={"knowledge_data": knowledge_data.get("summary", {})},
             )
 
@@ -85,7 +85,7 @@ class ImplicitKnowledgeGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_implicit_knowledge(self, context: DocGeneratorContext) -> dict[str, Any]:
@@ -774,7 +774,8 @@ class ImplicitKnowledgeGenerator(BaseDocGenerator):
         """使用 LLM 增强隐性知识文档"""
         enhanced = {}
 
-        prompt = f"""基于以下隐性知识分析，提供更深入的洞察：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下隐性知识分析，提供更深入的洞察：
 
 项目: {context.project_name}
 设计模式: {[p['name'] for p in knowledge_data.get('design_patterns', [])]}
@@ -788,7 +789,25 @@ class ImplicitKnowledgeGenerator(BaseDocGenerator):
     "improvement_suggestions": ["改进建议1", "改进建议2"],
     "knowledge_gaps": ["知识空白1", "知识空白2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following implicit knowledge analysis, provide deeper insights:
+
+Project: {context.project_name}
+Design Patterns: {[p['name'] for p in knowledge_data.get('design_patterns', [])]}
+Technical Debt: {len(knowledge_data.get('tech_debt', []))} items
+Coding Conventions: {len(knowledge_data.get('coding_conventions', []))} items
+
+Please return in JSON format:
+{{
+    "additional_patterns": ["patterns that may exist but were not detected"],
+    "architecture_insights": ["insight1", "insight2"],
+    "improvement_suggestions": ["suggestion1", "suggestion2"],
+    "knowledge_gaps": ["gap1", "gap2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

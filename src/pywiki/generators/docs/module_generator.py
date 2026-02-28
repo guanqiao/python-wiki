@@ -40,7 +40,7 @@ class ModuleGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="模块文档生成成功",
+                message=self.labels.get("module_doc_success", "Module documentation generated successfully"),
                 metadata={
                     "module_count": len(modules_info),
                     "total_classes": sum(len(m["classes"]) for m in modules_info),
@@ -53,7 +53,7 @@ class ModuleGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_modules_info(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
@@ -230,7 +230,7 @@ class ModuleGenerator(BaseDocGenerator):
     def _generate_index_content(self, context: DocGeneratorContext, modules_info: list[dict], dependency_graph: str) -> str:
         """生成模块索引内容"""
         lines = [
-            f"# {context.project_name} 模块文档",
+            f"# {context.project_name} {self.labels.get('module_documentation', 'Module Documentation')}",
             "",
         ]
 
@@ -249,21 +249,21 @@ class ModuleGenerator(BaseDocGenerator):
         )
 
         lines.extend([
-            "## 概览",
+            f"## {self.labels.get('overview', 'Overview')}",
             "",
-            f"| 指标 | 数量 |",
+            f"| {self.labels.get('metrics', 'Metrics')} | {self.labels.get('count', 'Count')} |",
             f"|------|------|",
-            f"| 模块 | {len(modules_info)} |",
-            f"| 类 | {total_classes} |",
-            f"| 函数 | {total_functions} |",
-            f"| 方法 | {total_methods} |",
-            f"| 异步函数/方法 | {total_async} |",
+            f"| {self.labels.get('modules', 'Modules')} | {len(modules_info)} |",
+            f"| {self.labels.get('classes', 'Classes')} | {total_classes} |",
+            f"| {self.labels.get('functions', 'Functions')} | {total_functions} |",
+            f"| {self.labels.get('methods', 'Methods')} | {total_methods} |",
+            f"| {self.labels.get('async_functions_methods', 'Async Functions/Methods')} | {total_async} |",
             "",
         ])
 
         if dependency_graph:
             lines.extend([
-                "## 模块依赖关系",
+                f"## {self.labels.get('module_dependencies', 'Module Dependencies')}",
                 "",
                 f"```mermaid",
                 f"{dependency_graph}",
@@ -272,7 +272,7 @@ class ModuleGenerator(BaseDocGenerator):
             ])
 
         lines.extend([
-            "## 模块列表",
+            f"## {self.labels.get('module_list', 'Module List')}",
             "",
         ])
 
@@ -294,21 +294,21 @@ class ModuleGenerator(BaseDocGenerator):
                 
                 stats_parts = []
                 if module['classes']:
-                    stats_parts.append(f"{len(module['classes'])} 个类")
+                    stats_parts.append(self.labels.get("n_classes", "{} classes").format(len(module['classes'])))
                 if module['functions']:
-                    stats_parts.append(f"{len(module['functions'])} 个函数")
+                    stats_parts.append(self.labels.get("n_functions", "{} functions").format(len(module['functions'])))
                 if stats_parts:
-                    lines.append(f"**统计**: {', '.join(stats_parts)}")
+                    lines.append(f"**{self.labels.get('statistics', 'Statistics')}**: {', '.join(stats_parts)}")
                 
                 if module['classes']:
                     class_summary = []
                     for cls in module['classes'][:3]:
                         method_count = len(cls['methods'])
                         prop_count = len(cls['properties'])
-                        class_summary.append(f"`{cls['name']}` ({method_count} 方法, {prop_count} 属性)")
+                        class_summary.append(f"`{cls['name']}` ({self.labels.get('n_methods', '{} methods').format(method_count)}, {self.labels.get('n_properties', '{} properties').format(prop_count)})")
                     if len(module['classes']) > 3:
-                        class_summary.append(f"... 等 {len(module['classes'])} 个类")
-                    lines.append(f"\n**类**: {', '.join(class_summary)}")
+                        class_summary.append(self.labels.get("more_n_classes", "... and {} more classes").format(len(module['classes'])))
+                    lines.append(f"\n**{self.labels.get('class_label', 'Class')}**: {', '.join(class_summary)}")
                 
                 if module['functions']:
                     func_summary = []
@@ -320,19 +320,19 @@ class ModuleGenerator(BaseDocGenerator):
                         is_async = "async " if func.get('is_async') else ""
                         func_summary.append(f"`{is_async}{func['name']}({params}){return_type}`")
                     if len(module['functions']) > 3:
-                        func_summary.append(f"... 等 {len(module['functions'])} 个函数")
-                    lines.append(f"\n**函数**: {', '.join(func_summary)}")
+                        func_summary.append(self.labels.get("more_n_functions", "... and {} more functions").format(len(module['functions'])))
+                    lines.append(f"\n**{self.labels.get('function_label', 'Function')}**: {', '.join(func_summary)}")
                 
                 external_imports = [i['module'] for i in module['imports'] if i['type'] == 'external'][:5]
                 if external_imports:
-                    lines.append(f"\n**外部依赖**: {', '.join(external_imports)}")
+                    lines.append(f"\n**{self.labels.get('external_deps', 'External Dependencies')}**: {', '.join(external_imports)}")
                 
                 lines.append("")
 
         lines.extend([
             "---",
             "",
-            f"*文档生成时间: {self._get_current_time()}*",
+            f"*{self.labels.get('doc_generated_at', 'Document generated at')}: {self._get_current_time()}*",
         ])
 
         return "\n".join(lines)

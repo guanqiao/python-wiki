@@ -916,7 +916,8 @@ CI/CD: {deploy_data.get('cicd', {}).get('platform', '未配置')}
     "performance_tuning": ["性能调优建议1", "性能调优建议2"],
     "cost_optimization": ["成本优化建议1", "成本优化建议2"]
 }}
-"""
+
+请务必使用中文回答。"""
         else:
             prompt = f"""Based on the following deployment information, provide deployment best practice recommendations:
 
@@ -933,7 +934,8 @@ Please return in JSON format:
     "performance_tuning": ["tuning1", "tuning2"],
     "cost_optimization": ["optimization1", "optimization2"]
 }}
-"""
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

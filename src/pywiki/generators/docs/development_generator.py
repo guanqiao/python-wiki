@@ -56,7 +56,7 @@ class DevelopmentGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="开发指南文档生成成功",
+                message=self.labels.get("development_doc_success", "Development guide generated successfully"),
                 metadata={"dev_data": dev_data.get("summary", {})},
             )
 
@@ -65,7 +65,7 @@ class DevelopmentGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_dev_data(self, context: DocGeneratorContext, project_language: str) -> dict[str, Any]:
@@ -693,7 +693,8 @@ class DevelopmentGenerator(BaseDocGenerator):
         """使用 LLM 增强开发指南"""
         enhanced = {}
 
-        prompt = f"""基于以下开发信息，提供开发最佳实践建议：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下开发信息，提供开发最佳实践建议：
 
 项目: {context.project_name}
 前置条件: {dev_data.get('prerequisites', [])}
@@ -706,7 +707,24 @@ class DevelopmentGenerator(BaseDocGenerator):
     "common_pitfalls": ["常见陷阱1", "常见陷阱2"],
     "ide_recommendations": ["IDE 配置建议1", "IDE 配置建议2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following development information, provide development best practice recommendations:
+
+Project: {context.project_name}
+Prerequisites: {dev_data.get('prerequisites', [])}
+Build Steps: {[s['name'] for s in dev_data.get('build', [])]}
+Testing Steps: {[s['name'] for s in dev_data.get('testing', [])]}
+
+Please return in JSON format:
+{{
+    "development_tips": ["tip1", "tip2"],
+    "common_pitfalls": ["pitfall1", "pitfall2"],
+    "ide_recommendations": ["IDE recommendation1", "IDE recommendation2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

@@ -54,7 +54,7 @@ class ConfigGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="配置文档生成成功",
+                message=self.labels.get("config_doc_success", "Configuration documentation generated successfully"),
                 metadata={"config_data": config_data.get("summary", {})},
             )
 
@@ -63,7 +63,7 @@ class ConfigGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_config_data(self, context: DocGeneratorContext, project_language: str) -> dict[str, Any]:
@@ -668,7 +668,8 @@ class ConfigGenerator(BaseDocGenerator):
         """使用 LLM 增强配置文档"""
         enhanced = {}
 
-        prompt = f"""基于以下配置信息，提供配置最佳实践建议：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下配置信息，提供配置最佳实践建议：
 
 项目: {context.project_name}
 配置文件: {[f['name'] for f in config_data.get('config_files', [])]}
@@ -680,7 +681,23 @@ class ConfigGenerator(BaseDocGenerator):
     "security_recommendations": ["安全建议1", "安全建议2"],
     "common_issues": ["常见问题1", "常见问题2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following configuration information, provide configuration best practice recommendations:
+
+Project: {context.project_name}
+Config Files: {[f['name'] for f in config_data.get('config_files', [])]}
+Environment Variables: {len(config_data.get('env_variables', []))}
+
+Please return in JSON format:
+{{
+    "configuration_best_practices": ["best practice1", "best practice2"],
+    "security_recommendations": ["security recommendation1", "security recommendation2"],
+    "common_issues": ["common issue1", "common issue2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

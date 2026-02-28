@@ -58,7 +58,7 @@ class DatabaseGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="数据库文档生成成功",
+                message=self.labels.get("database_doc_success", "Database documentation generated successfully"),
                 metadata={"db_data": db_data.get("summary", {})},
             )
 
@@ -67,7 +67,7 @@ class DatabaseGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_db_data(self, context: DocGeneratorContext, project_language: str) -> dict[str, Any]:
@@ -1066,7 +1066,8 @@ class DatabaseGenerator(BaseDocGenerator):
         
         summary = db_data.get("summary", {})
 
-        prompt = f"""基于以下数据库设计，提供优化建议：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下数据库设计，提供优化建议：
 
 项目: {context.project_name}
 表数量: {summary.get('table_count', 0)}
@@ -1080,7 +1081,25 @@ ORM类型: {db_data.get('orm_type', '未知')}
     "normalization_issues": ["规范化问题1", "规范化问题2"],
     "performance_tips": ["性能优化建议1", "性能优化建议2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following database design, provide optimization recommendations:
+
+Project: {context.project_name}
+Tables: {summary.get('table_count', 0)}
+Relationships: {summary.get('relationship_count', 0)}
+ORM Type: {db_data.get('orm_type', 'Unknown')}
+
+Please return in JSON format:
+{{
+    "database_design_analysis": "Database design analysis",
+    "indexing_suggestions": ["indexing suggestion1", "indexing suggestion2"],
+    "normalization_issues": ["normalization issue1", "normalization issue2"],
+    "performance_tips": ["performance tip1", "performance tip2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

@@ -4,6 +4,7 @@
 
 import hashlib
 import json
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +17,7 @@ from jinja2 import Environment, FileSystemLoader, Template
 from pywiki.config.models import Language
 from pywiki.parsers.types import ModuleInfo, ParseResult
 from pywiki.wiki.structure import DocCategory
+from pywiki.monitor.logger import logger
 
 
 class DocType(str, Enum):
@@ -76,33 +78,72 @@ class DocGeneratorContext:
         if not self.project_path:
             return "python"
         
+        EXCLUDE_DIRS = {
+            "__pycache__",
+            "node_modules",
+            "target",
+            "build",
+            ".gradle",
+            ".mvn",
+            ".python-wiki",
+            ".venv",
+            "venv",
+            "env",
+            ".env",
+            "dist",
+            "out",
+            ".idea",
+            ".vscode",
+            ".git",
+            ".tox",
+            ".pytest_cache",
+            ".mypy_cache",
+            "site-packages",
+        }
+        
+        def should_exclude(path: Path) -> bool:
+            return any(excluded in path.parts for excluded in EXCLUDE_DIRS)
+        
         language_scores = {
             "python": 0,
             "java": 0,
             "typescript": 0,
         }
         
-        python_files = list(self.project_path.rglob("*.py"))
-        python_files = [f for f in python_files if "__pycache__" not in str(f)]
+        python_files = [f for f in self.project_path.rglob("*.py") if not should_exclude(f)]
         language_scores["python"] = len(python_files)
         
-        java_files = list(self.project_path.rglob("*.java"))
+        java_files = [f for f in self.project_path.rglob("*.java") if not should_exclude(f)]
         language_scores["java"] = len(java_files)
         
-        ts_files = list(self.project_path.rglob("*.ts")) + list(self.project_path.rglob("*.tsx"))
-        ts_files = [f for f in ts_files if "node_modules" not in str(f)]
+        ts_files = [f for f in self.project_path.rglob("*.ts") if not should_exclude(f)]
+        ts_files += [f for f in self.project_path.rglob("*.tsx") if not should_exclude(f)]
         language_scores["typescript"] = len(ts_files)
         
-        if (self.project_path / "pom.xml").exists() or (self.project_path / "build.gradle").exists():
-            language_scores["java"] += 100
+        if (self.project_path / "pom.xml").exists():
+            language_scores["java"] += 1000
+        if (self.project_path / "build.gradle").exists() or (self.project_path / "build.gradle.kts").exists():
+            language_scores["java"] += 1000
         
         if (self.project_path / "package.json").exists():
-            language_scores["typescript"] += 100
+            language_scores["typescript"] += 500
         
         if (self.project_path / "pyproject.toml").exists() or (self.project_path / "setup.py").exists():
-            language_scores["python"] += 100
+            language_scores["python"] += 500
+        
+        if (self.project_path / "src" / "main" / "java").exists():
+            language_scores["java"] += 200
+        if (self.project_path / "src" / "main" / "kotlin").exists():
+            language_scores["java"] += 100
+        
+        if (self.project_path / "src" / "main" / "ts").exists():
+            language_scores["typescript"] += 100
         
         if max(language_scores.values()) == 0:
+            if (self.project_path / "pom.xml").exists() or (self.project_path / "build.gradle").exists():
+                return "java"
+            if (self.project_path / "package.json").exists():
+                return "typescript"
             return "python"
         
         return max(language_scores.items(), key=lambda x: x[1])[0]
@@ -418,6 +459,113 @@ class BaseDocGenerator(ABC):
                 "config_file": "配置文件",
                 "config_dir": "配置目录",
                 "platform": "平台",
+                "async_support": "异步编程支持",
+                "dataclass_support": "数据类支持",
+                "context_manager_support": "上下文管理器支持",
+                "iterator_support": "迭代器支持",
+                "decorator_pattern": "装饰器模式",
+                "property_accessor": "属性访问器",
+                "classmethod_support": "类方法支持",
+                "staticmethod_support": "静态方法支持",
+                "caching_decorator": "缓存装饰器",
+                "retry_mechanism": "重试机制",
+                "project_documentation": "项目文档",
+                "module_documentation": "模块文档",
+                "module_dependencies": "模块依赖关系",
+                "metrics": "指标",
+                "count": "数量",
+                "async_functions_methods": "异步函数/方法",
+                "statistics": "统计",
+                "more_classes": "... 等 {} 个类",
+                "attributes": "属性",
+                "contains_modules": "包含 {} 个模块",
+                "defined_classes": "定义了 {} 个类",
+                "provided_functions": "提供了 {} 个函数",
+                "web_frameworks": "Web框架",
+                "databases_tech": "数据库",
+                "http_clients": "HTTP客户端",
+                "testing": "测试",
+                "data_processing": "数据处理",
+                "machine_learning": "机器学习",
+                "cli_tools": "CLI",
+                "validation": "验证",
+                "logging_tech": "日志",
+                "config_tech": "配置",
+                "gui_frameworks": "GUI",
+                "n_classes": "{} 个类",
+                "n_functions": "{} 个函数",
+                "n_methods": "{} 方法",
+                "n_properties": "{} 属性",
+                "more_n_classes": "... 等 {} 个类",
+                "more_n_functions": "... 等 {} 个函数",
+                "external_deps": "外部依赖",
+                "doc_generated_at": "文档生成时间",
+                "class_label": "类",
+                "function_label": "函数",
+                "monolithic_arch": "单体架构",
+                "event_driven_arch": "事件驱动架构",
+                "cqrs_arch": "CQRS 架构",
+                "hexagonal_arch": "六边形架构",
+                "microservice_arch": "微服务架构",
+                "layered_arch": "分层架构",
+                "system_arch": "系统架构",
+                "package_deps": "包依赖关系",
+                "external_client": "外部客户端",
+                "api_entry": "API 入口",
+                "business_processing": "业务处理",
+                "data_storage": "数据存储",
+                "overview_success": "项目概述文档生成成功",
+                "module_doc_success": "模块文档生成成功",
+                "generation_failed": "生成失败",
+                "request": "请求",
+                "data_operation": "数据操作",
+                "api_doc_success": "API 文档生成成功",
+                "database_doc_success": "数据库文档生成成功",
+                "config_doc_success": "配置文档生成成功",
+                "dependencies_doc_success": "依赖文档生成成功",
+                "development_doc_success": "开发指南文档生成成功",
+                "techstack_doc_success": "技术栈文档生成成功",
+                "architecture_doc_success": "架构文档生成成功",
+                "code_quality_doc_success": "代码质量分析文档生成成功",
+                "test_coverage_doc_success": "测试覆盖分析文档生成成功",
+                "implicit_knowledge_doc_success": "隐性知识文档生成成功",
+                "tsd_doc_success": "TSD 文档生成成功",
+                "tds_doc_success": "Technical Design Specification 文档生成成功",
+                "quest_doc_success": "Quest 设计文档生成成功",
+                "adr_not_detected": "未检测到架构决策",
+                "adr_generated": "成功生成 {} 个 ADR",
+                "other": "其他",
+                "utilities": "工具",
+                "async_tech": "异步",
+                "microservices": "微服务",
+                "message_queue": "消息队列",
+                "caching": "缓存",
+                "monitoring": "监控",
+                "build_tools": "构建工具",
+                "frontend_frameworks": "前端框架",
+                "ui_libraries": "UI组件库",
+                "state_management": "状态管理",
+                "api_docs": "API文档",
+                "presentation_layer": "表现层",
+                "business_layer": "业务层",
+                "data_layer": "数据层",
+                "infrastructure_layer": "基础设施层",
+                "proxy_layer": "代理层",
+                "dto_layer": "DTO层",
+                "presentation_desc": "处理外部请求，负责数据展示和用户交互",
+                "business_desc": "实现核心业务逻辑和业务规则",
+                "data_desc": "负责数据持久化和数据访问",
+                "infrastructure_desc": "提供技术支持和基础设施服务",
+                "proxy_desc": "负责与外部系统交互和集成",
+                "dto_desc": "数据传输对象，用于层间数据传递",
+                "java_presentation_desc": "处理 HTTP 请求，负责 API 端点和 Web 界面",
+                "ts_presentation_desc": "处理 HTTP 请求和 GraphQL 解析器",
+                "ts_dto_desc": "数据传输对象和类型定义",
+                "orm_frameworks": "ORM框架",
+                "json_processing": "JSON处理",
+                "type_checking": "类型检查",
+                "code_quality": "代码质量",
+                "backend_frameworks": "后端框架",
             }
         else:
             self.labels = {
@@ -600,6 +748,113 @@ class BaseDocGenerator(ABC):
                 "config_file": "Config File",
                 "config_dir": "Config Directory",
                 "platform": "Platform",
+                "async_support": "Async Programming Support",
+                "dataclass_support": "Dataclass Support",
+                "context_manager_support": "Context Manager Support",
+                "iterator_support": "Iterator Support",
+                "decorator_pattern": "Decorator Pattern",
+                "property_accessor": "Property Accessor",
+                "classmethod_support": "Classmethod Support",
+                "staticmethod_support": "Staticmethod Support",
+                "caching_decorator": "Caching Decorator",
+                "retry_mechanism": "Retry Mechanism",
+                "project_documentation": "Project Documentation",
+                "module_documentation": "Module Documentation",
+                "module_dependencies": "Module Dependencies",
+                "metrics": "Metrics",
+                "count": "Count",
+                "async_functions_methods": "Async Functions/Methods",
+                "statistics": "Statistics",
+                "more_classes": "... and {} more classes",
+                "attributes": "Attributes",
+                "contains_modules": "Contains {} modules",
+                "defined_classes": "Defines {} classes",
+                "provided_functions": "Provides {} functions",
+                "web_frameworks": "Web Frameworks",
+                "databases_tech": "Databases",
+                "http_clients": "HTTP Clients",
+                "testing": "Testing",
+                "data_processing": "Data Processing",
+                "machine_learning": "Machine Learning",
+                "cli_tools": "CLI",
+                "validation": "Validation",
+                "logging_tech": "Logging",
+                "config_tech": "Configuration",
+                "gui_frameworks": "GUI",
+                "n_classes": "{} classes",
+                "n_functions": "{} functions",
+                "n_methods": "{} methods",
+                "n_properties": "{} properties",
+                "more_n_classes": "... and {} more classes",
+                "more_n_functions": "... and {} more functions",
+                "external_deps": "External Dependencies",
+                "doc_generated_at": "Document generated at",
+                "class_label": "Class",
+                "function_label": "Function",
+                "monolithic_arch": "Monolithic Architecture",
+                "event_driven_arch": "Event-Driven Architecture",
+                "cqrs_arch": "CQRS Architecture",
+                "hexagonal_arch": "Hexagonal Architecture",
+                "microservice_arch": "Microservice Architecture",
+                "layered_arch": "Layered Architecture",
+                "system_arch": "System Architecture",
+                "package_deps": "Package Dependencies",
+                "external_client": "External Client",
+                "api_entry": "API Entry",
+                "business_processing": "Business Processing",
+                "data_storage": "Data Storage",
+                "overview_success": "Overview document generated successfully",
+                "module_doc_success": "Module documentation generated successfully",
+                "generation_failed": "Generation failed",
+                "request": "Request",
+                "data_operation": "Data Operation",
+                "api_doc_success": "API documentation generated successfully",
+                "database_doc_success": "Database documentation generated successfully",
+                "config_doc_success": "Configuration documentation generated successfully",
+                "dependencies_doc_success": "Dependencies documentation generated successfully",
+                "development_doc_success": "Development guide generated successfully",
+                "techstack_doc_success": "Tech stack documentation generated successfully",
+                "architecture_doc_success": "Architecture documentation generated successfully",
+                "code_quality_doc_success": "Code quality analysis generated successfully",
+                "test_coverage_doc_success": "Test coverage analysis generated successfully",
+                "implicit_knowledge_doc_success": "Implicit knowledge documentation generated successfully",
+                "tsd_doc_success": "TSD documentation generated successfully",
+                "tds_doc_success": "Technical Design Specification generated successfully",
+                "quest_doc_success": "Quest design document generated successfully",
+                "adr_not_detected": "No architecture decisions detected",
+                "adr_generated": "Successfully generated {} ADRs",
+                "other": "Other",
+                "utilities": "Utilities",
+                "async_tech": "Async",
+                "microservices": "Microservices",
+                "message_queue": "Message Queue",
+                "caching": "Caching",
+                "monitoring": "Monitoring",
+                "build_tools": "Build Tools",
+                "frontend_frameworks": "Frontend Frameworks",
+                "ui_libraries": "UI Libraries",
+                "state_management": "State Management",
+                "api_docs": "API Docs",
+                "presentation_layer": "Presentation Layer",
+                "business_layer": "Business Layer",
+                "data_layer": "Data Layer",
+                "infrastructure_layer": "Infrastructure Layer",
+                "proxy_layer": "Proxy Layer",
+                "dto_layer": "DTO Layer",
+                "presentation_desc": "Handles external requests, responsible for data display and user interaction",
+                "business_desc": "Implements core business logic and business rules",
+                "data_desc": "Responsible for data persistence and data access",
+                "infrastructure_desc": "Provides technical support and infrastructure services",
+                "proxy_desc": "Responsible for interacting and integrating with external systems",
+                "dto_desc": "Data Transfer Objects for inter-layer data transfer",
+                "java_presentation_desc": "Handles HTTP requests, responsible for API endpoints and web interface",
+                "ts_presentation_desc": "Handles HTTP requests and GraphQL resolvers",
+                "ts_dto_desc": "Data Transfer Objects and type definitions",
+                "orm_frameworks": "ORM Frameworks",
+                "json_processing": "JSON Processing",
+                "type_checking": "Type Checking",
+                "code_quality": "Code Quality",
+                "backend_frameworks": "Backend Frameworks",
             }
 
     def _get_template_env(self) -> Environment:
@@ -636,6 +891,64 @@ class BaseDocGenerator(ABC):
         template = self.get_template()
         return template.render(labels=self.labels, **kwargs)
 
+    def _get_language_instruction(self) -> str:
+        """获取语言指令"""
+        if self.language == Language.ZH:
+            return "请务必使用中文回答。"
+        else:
+            return "Please respond in English."
+
+    def _get_system_prompt(self) -> str:
+        """获取系统提示词"""
+        if self.language == Language.ZH:
+            return """# 角色定义
+你是一位资深的技术文档撰写专家，精通多种编程语言和软件架构，擅长将复杂的代码逻辑转化为清晰易懂的文档。
+
+# 核心职责
+1. **代码分析**: 深入理解项目结构、模块关系、API设计
+2. **信息提取**: 识别关键功能、设计决策、技术亮点
+3. **文档撰写**: 生成结构清晰、内容准确的技术文档
+4. **质量把控**: 确保文档的完整性、准确性和可读性
+
+# 文档写作规范
+- **结构化**: 使用标题层级组织内容，逻辑清晰
+- **准确性**: 基于代码事实，避免模糊表述
+- **完整性**: 覆盖所有重要模块和接口
+- **可读性**: 使用简洁明了的语言，适当使用代码示例
+- **一致性**: 术语使用统一，格式风格一致
+
+# 输出格式要求
+- 使用标准 Markdown 格式
+- 代码块标注语言类型
+- 表格用于展示结构化数据
+- 列表用于枚举和步骤说明
+
+请务必使用中文回答。"""
+        else:
+            return """# Role Definition
+You are a senior technical documentation expert, proficient in multiple programming languages and software architectures, skilled at transforming complex code logic into clear and understandable documentation.
+
+# Core Responsibilities
+1. **Code Analysis**: Deep understanding of project structure, module relationships, API design
+2. **Information Extraction**: Identify key features, design decisions, technical highlights
+3. **Documentation Writing**: Generate well-structured, accurate technical documentation
+4. **Quality Control**: Ensure completeness, accuracy, and readability of documentation
+
+# Documentation Writing Standards
+- **Structured**: Use heading levels to organize content with clear logic
+- **Accurate**: Based on code facts, avoid vague statements
+- **Complete**: Cover all important modules and interfaces
+- **Readable**: Use concise language with appropriate code examples
+- **Consistent**: Unified terminology and formatting style
+
+# Output Format Requirements
+- Use standard Markdown format
+- Code blocks with language type annotation
+- Tables for structured data
+- Lists for enumeration and step-by-step instructions
+
+Please respond in English."""
+
     async def generate_with_llm(
         self,
         prompt: str,
@@ -644,13 +957,29 @@ class BaseDocGenerator(ABC):
     ) -> str:
         """使用 LLM 增强文档内容"""
         if not llm_client:
+            logger.debug("generate_with_llm: LLM 客户端未配置，跳过")
             return ""
+        
+        if system_prompt is None:
+            system_prompt = self._get_system_prompt()
+        
+        start_time = time.time()
+        prompt_length = len(prompt) if prompt else 0
+        logger.info(f"LLM 增强开始: prompt_length={prompt_length}, has_system_prompt={bool(system_prompt)}")
         
         try:
             if system_prompt:
-                return await llm_client.agenerate(prompt, system_prompt=system_prompt)
-            return await llm_client.agenerate(prompt)
-        except Exception:
+                result = await llm_client.agenerate(prompt, system_prompt=system_prompt)
+            else:
+                result = await llm_client.agenerate(prompt)
+            
+            duration_ms = (time.time() - start_time) * 1000
+            result_length = len(result) if result else 0
+            logger.info(f"LLM 增强完成: 耗时={duration_ms:.0f}ms, result_length={result_length}")
+            return result
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(f"LLM 增强失败: 耗时={duration_ms:.0f}ms, 错误={str(e)}")
             return ""
 
     def create_result(

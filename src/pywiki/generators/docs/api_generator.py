@@ -79,7 +79,7 @@ class APIGenerator(BaseDocGenerator):
                 api_data.update(enhanced_data)
 
             content = self.render_template(
-                description=f"{context.project_name} API 文档",
+                description=f"{context.project_name} {self.labels.get('api_reference', 'API Reference')}",
                 modules=api_data["modules"],
                 endpoints=api_data["endpoints"],
                 openapi=api_data["openapi"],
@@ -89,7 +89,7 @@ class APIGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="API 文档生成成功",
+                message=self.labels.get("api_doc_success", "API documentation generated successfully"),
                 metadata={
                     "module_count": len(api_data["modules"]),
                     "endpoint_count": len(api_data["endpoints"]),
@@ -101,7 +101,7 @@ class APIGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_api_modules(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
@@ -637,7 +637,8 @@ class APIGenerator(BaseDocGenerator):
 
         endpoints = api_data.get("endpoints", [])
         if endpoints:
-            prompt = f"""为以下 API 端点生成更详细的文档：
+            if self.language == Language.ZH:
+                prompt = f"""为以下 API 端点生成更详细的文档：
 
 项目: {context.project_name}
 端点数量: {len(endpoints)}
@@ -651,7 +652,25 @@ class APIGenerator(BaseDocGenerator):
     "common_headers": {{"Header-Name": "说明"}},
     "error_handling": "错误处理说明"
 }}
-"""
+
+请务必使用中文回答。"""
+            else:
+                prompt = f"""Generate more detailed documentation for the following API endpoints:
+
+Project: {context.project_name}
+Endpoint Count: {len(endpoints)}
+Main Endpoints: {[e['path'] for e in endpoints[:5]]}
+
+Please return in JSON format:
+{{
+    "api_overview": "API overall description",
+    "authentication": "Authentication method description",
+    "rate_limiting": "Rate limiting description",
+    "common_headers": {{"Header-Name": "description"}},
+    "error_handling": "Error handling description"
+}}
+
+Please respond in English."""
 
             try:
                 response = await llm_client.agenerate(prompt)

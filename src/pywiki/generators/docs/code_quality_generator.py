@@ -93,7 +93,7 @@ class CodeQualityGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="代码质量分析文档生成成功",
+                message=self.labels.get("code_quality_doc_success", "Code quality analysis generated successfully"),
                 metadata={"quality_score": quality_data["quality_score"].get("overall", 0)},
             )
 
@@ -102,7 +102,7 @@ class CodeQualityGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _detect_code_smells(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
@@ -547,7 +547,8 @@ class CodeQualityGenerator(BaseDocGenerator):
         score = quality_data.get("quality_score", {})
         smells = quality_data.get("code_smells", [])
 
-        prompt = f"""基于以下代码质量分析，提供改进建议：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下代码质量分析，提供改进建议：
 
 项目: {context.project_name}
 质量评分: {score.get('overall', 0):.1f} 分（等级 {score.get('grade', 'F')}）
@@ -560,7 +561,24 @@ class CodeQualityGenerator(BaseDocGenerator):
     "architecture_improvements": ["架构改进建议1", "架构改进建议2"],
     "team_guidelines": ["团队规范建议1", "团队规范建议2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following code quality analysis, provide improvement suggestions:
+
+Project: {context.project_name}
+Quality Score: {score.get('overall', 0):.1f} (Grade {score.get('grade', 'F')})
+Code Smells: {len(smells)}
+
+Please return in JSON format:
+{{
+    "refactoring_priorities": ["priority1", "priority2"],
+    "best_practices": ["practice1", "practice2"],
+    "architecture_improvements": ["improvement1", "improvement2"],
+    "team_guidelines": ["guideline1", "guideline2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

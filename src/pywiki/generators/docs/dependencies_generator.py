@@ -61,7 +61,7 @@ class DependenciesGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="依赖文档生成成功",
+                message=self.labels.get("dependencies_doc_success", "Dependencies documentation generated successfully"),
                 metadata={"dependency_data": dep_data.get("summary", {})},
             )
 
@@ -70,7 +70,7 @@ class DependenciesGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     async def _analyze_dependencies(self, context: DocGeneratorContext) -> dict[str, Any]:
@@ -530,50 +530,50 @@ class DependenciesGenerator(BaseDocGenerator):
     def _categorize_dependency(self, name: str) -> str:
         """分类依赖"""
         categories = {
-            "Web框架": [
+            self.labels.get("web_frameworks", "Web Frameworks"): [
                 "flask", "django", "fastapi", "starlette", "tornado", "aiohttp",
                 "express", "koa", "nestjs", "spring", "spring-boot", "spring-web", "spring-webmvc",
                 "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut",
                 "next", "nuxt", "gatsby", "sveltekit", "remix", "astro"
             ],
-            "数据库": [
+            self.labels.get("databases_tech", "Databases"): [
                 "sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "mongoose", "prisma", "typeorm",
                 "hibernate", "mybatis", "jpa", "jooq", "querydsl", "jdbc", "hikari",
                 "drizzle", "sequelize", "mikro-orm", "dexie", "lowdb"
             ],
-            "HTTP": [
+            self.labels.get("http_clients", "HTTP Clients"): [
                 "requests", "httpx", "urllib3", "aiohttp", "axios", "fetch", "okhttp",
                 "apache-httpclient", "retrofit", "feign", "resttemplate", "webclient",
                 "ky", "got", "superagent", "node-fetch"
             ],
-            "测试": [
+            self.labels.get("testing", "Testing"): [
                 "pytest", "unittest", "mock", "hypothesis", "jest", "mocha", "junit",
                 "testng", "assertj", "mockito", "vitest", "cypress", "playwright",
                 "testing-library", "supertest", "chai", "sinon"
             ],
-            "数据处理": ["pandas", "numpy", "scipy", "polars"],
-            "机器学习": ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
-            "GUI": ["pyqt", "pyside", "tkinter", "electron", "tauri", "nw.js"],
-            "CLI": ["click", "typer", "argparse", "commander", "yargs", "commander-js", "oclif"],
-            "验证": ["pydantic", "marshmallow", "cerberus", "joi", "zod", "yup", "class-validator", "ajv"],
-            "工具": ["rich", "loguru", "python-dotenv", "lodash", "moment", "dayjs", "date-fns", "ramda"],
-            "日志": ["loguru", "logging", "winston", "log4j", "logback", "slf4j", "pino", "bunyan"],
-            "配置": ["dotenv", "pydantic_settings", "configparser", "convict", "convict", "config", "nconf"],
-            "异步": ["asyncio", "trio", "anyio", "celery", "bull", "rabbitmq", "kafka"],
-            "安全": ["cryptography", "passlib", "jwt", "authlib", "bcrypt", "passport", "helmet", "cors"],
-            "微服务": [
+            self.labels.get("data_processing", "Data Processing"): ["pandas", "numpy", "scipy", "polars"],
+            self.labels.get("machine_learning", "Machine Learning"): ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
+            self.labels.get("gui_frameworks", "GUI"): ["pyqt", "pyside", "tkinter", "electron", "tauri", "nw.js"],
+            self.labels.get("cli_tools", "CLI"): ["click", "typer", "argparse", "commander", "yargs", "commander-js", "oclif"],
+            self.labels.get("validation", "Validation"): ["pydantic", "marshmallow", "cerberus", "joi", "zod", "yup", "class-validator", "ajv"],
+            self.labels.get("utilities", "Utilities"): ["rich", "loguru", "python-dotenv", "lodash", "moment", "dayjs", "date-fns", "ramda"],
+            self.labels.get("logging_tech", "Logging"): ["loguru", "logging", "winston", "log4j", "logback", "slf4j", "pino", "bunyan"],
+            self.labels.get("config_tech", "Configuration"): ["dotenv", "pydantic_settings", "configparser", "convict", "convict", "config", "nconf"],
+            self.labels.get("async_tech", "Async"): ["asyncio", "trio", "anyio", "celery", "bull", "rabbitmq", "kafka"],
+            self.labels.get("security", "Security"): ["cryptography", "passlib", "jwt", "authlib", "bcrypt", "passport", "helmet", "cors"],
+            self.labels.get("microservices", "Microservices"): [
                 "spring-cloud", "dubbo", "grpc", "eureka", "nacos", "consul", "etcd",
                 "kafka", "rabbitmq", "activemq", "zeromq", "nats"
             ],
-            "消息队列": ["kafka", "rabbitmq", "activemq", "zeromq", "nats", "pulsar", "rocketmq"],
-            "缓存": ["redis", "memcached", "caffeine", "guava", "ehcache", "hazelcast"],
-            "监控": ["prometheus", "grafana", "elk", "zipkin", "jaeger", "sentry", "datadog"],
-            "构建工具": ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo", "maven", "gradle"],
-            "前端框架": ["react", "vue", "angular", "svelte", "solid", "preact", "alpine", "htmx"],
-            "UI组件库": ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap", "bulma"],
-            "状态管理": ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai", "valtio"],
+            self.labels.get("message_queue", "Message Queue"): ["kafka", "rabbitmq", "activemq", "zeromq", "nats", "pulsar", "rocketmq"],
+            self.labels.get("caching", "Caching"): ["redis", "memcached", "caffeine", "guava", "ehcache", "hazelcast"],
+            self.labels.get("monitoring", "Monitoring"): ["prometheus", "grafana", "elk", "zipkin", "jaeger", "sentry", "datadog"],
+            self.labels.get("build_tools", "Build Tools"): ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo", "maven", "gradle"],
+            self.labels.get("frontend_frameworks", "Frontend Frameworks"): ["react", "vue", "angular", "svelte", "solid", "preact", "alpine", "htmx"],
+            self.labels.get("ui_libraries", "UI Libraries"): ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap", "bulma"],
+            self.labels.get("state_management", "State Management"): ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai", "valtio"],
             "GraphQL": ["graphql", "apollo", "urql", "relay", "graphql-yoga", "graphql-tools"],
-            "API文档": ["swagger", "openapi", "springdoc", "swagger-ui", "redoc"],
+            self.labels.get("api_docs", "API Docs"): ["swagger", "openapi", "springdoc", "swagger-ui", "redoc"],
         }
 
         name_lower = name.lower()
@@ -581,62 +581,116 @@ class DependenciesGenerator(BaseDocGenerator):
             if any(kw in name_lower for kw in keywords):
                 return category
 
-        return "其他"
+        return self.labels.get("other", "Other")
 
     def _get_dependency_description(self, name: str) -> str:
         """获取依赖描述"""
-        descriptions = {
-            "flask": "轻量级 Web 框架",
-            "django": "全功能 Web 框架",
-            "fastapi": "高性能异步 API 框架",
-            "requests": "HTTP 客户端库",
-            "httpx": "异步 HTTP 客户端",
-            "pytest": "测试框架",
-            "pydantic": "数据验证库",
-            "sqlalchemy": "ORM 框架",
-            "pandas": "数据分析库",
-            "numpy": "科学计算库",
-            "torch": "深度学习框架",
-            "tensorflow": "机器学习框架",
-            "click": "CLI 框架",
-            "rich": "终端美化库",
-            "loguru": "日志库",
-            "spring-boot": "Spring Boot 框架",
-            "spring-webmvc": "Spring Web MVC",
-            "spring-webflux": "Spring WebFlux 响应式框架",
-            "hibernate": "Hibernate ORM 框架",
-            "mybatis": "MyBatis 持久层框架",
-            "jpa": "Java Persistence API",
-            "junit": "Java 单元测试框架",
-            "mockito": "Java Mock 测试框架",
-            "okhttp": "Square HTTP 客户端",
-            "retrofit": "Square REST 客户端",
-            "logback": "Java 日志框架",
-            "slf4j": "Java 日志门面",
-            "express": "Node.js Web 框架",
-            "nestjs": "Node.js 企业级框架",
-            "react": "React 前端框架",
-            "vue": "Vue 前端框架",
-            "angular": "Angular 前端框架",
-            "typescript": "TypeScript 语言",
-            "prisma": "Prisma ORM",
-            "typeorm": "TypeORM 框架",
-            "mongoose": "MongoDB ODM",
-            "jest": "JavaScript 测试框架",
-            "vitest": "Vite 测试框架",
-            "axios": "HTTP 客户端",
-            "zod": "TypeScript 数据验证",
-            "winston": "Node.js 日志库",
-            "tailwind": "Tailwind CSS 框架",
-            "antd": "Ant Design UI 组件库",
-            "redux": "Redux 状态管理",
-            "graphql": "GraphQL 查询语言",
-            "kafka": "Apache Kafka 消息队列",
-            "redis": "Redis 缓存数据库",
-            "mongodb": "MongoDB 文档数据库",
-            "mysql": "MySQL 关系数据库",
-            "postgresql": "PostgreSQL 关系数据库",
-        }
+        if self.language == Language.ZH:
+            descriptions = {
+                "flask": "轻量级 Web 框架",
+                "django": "全功能 Web 框架",
+                "fastapi": "高性能异步 API 框架",
+                "requests": "HTTP 客户端库",
+                "httpx": "异步 HTTP 客户端",
+                "pytest": "测试框架",
+                "pydantic": "数据验证库",
+                "sqlalchemy": "ORM 框架",
+                "pandas": "数据分析库",
+                "numpy": "科学计算库",
+                "torch": "深度学习框架",
+                "tensorflow": "机器学习框架",
+                "click": "CLI 框架",
+                "rich": "终端美化库",
+                "loguru": "日志库",
+                "spring-boot": "Spring Boot 框架",
+                "spring-webmvc": "Spring Web MVC",
+                "spring-webflux": "Spring WebFlux 响应式框架",
+                "hibernate": "Hibernate ORM 框架",
+                "mybatis": "MyBatis 持久层框架",
+                "jpa": "Java Persistence API",
+                "junit": "Java 单元测试框架",
+                "mockito": "Java Mock 测试框架",
+                "okhttp": "Square HTTP 客户端",
+                "retrofit": "Square REST 客户端",
+                "logback": "Java 日志框架",
+                "slf4j": "Java 日志门面",
+                "express": "Node.js Web 框架",
+                "nestjs": "Node.js 企业级框架",
+                "react": "React 前端框架",
+                "vue": "Vue 前端框架",
+                "angular": "Angular 前端框架",
+                "typescript": "TypeScript 语言",
+                "prisma": "Prisma ORM",
+                "typeorm": "TypeORM 框架",
+                "mongoose": "MongoDB ODM",
+                "jest": "JavaScript 测试框架",
+                "vitest": "Vite 测试框架",
+                "axios": "HTTP 客户端",
+                "zod": "TypeScript 数据验证",
+                "winston": "Node.js 日志库",
+                "tailwind": "Tailwind CSS 框架",
+                "antd": "Ant Design UI 组件库",
+                "redux": "Redux 状态管理",
+                "graphql": "GraphQL 查询语言",
+                "kafka": "Apache Kafka 消息队列",
+                "redis": "Redis 缓存数据库",
+                "mongodb": "MongoDB 文档数据库",
+                "mysql": "MySQL 关系数据库",
+                "postgresql": "PostgreSQL 关系数据库",
+            }
+        else:
+            descriptions = {
+                "flask": "Lightweight Web Framework",
+                "django": "Full-featured Web Framework",
+                "fastapi": "High-performance Async API Framework",
+                "requests": "HTTP Client Library",
+                "httpx": "Async HTTP Client",
+                "pytest": "Testing Framework",
+                "pydantic": "Data Validation Library",
+                "sqlalchemy": "ORM Framework",
+                "pandas": "Data Analysis Library",
+                "numpy": "Scientific Computing Library",
+                "torch": "Deep Learning Framework",
+                "tensorflow": "Machine Learning Framework",
+                "click": "CLI Framework",
+                "rich": "Terminal Beautification Library",
+                "loguru": "Logging Library",
+                "spring-boot": "Spring Boot Framework",
+                "spring-webmvc": "Spring Web MVC",
+                "spring-webflux": "Spring WebFlux Reactive Framework",
+                "hibernate": "Hibernate ORM Framework",
+                "mybatis": "MyBatis Persistence Framework",
+                "jpa": "Java Persistence API",
+                "junit": "Java Unit Testing Framework",
+                "mockito": "Java Mock Testing Framework",
+                "okhttp": "Square HTTP Client",
+                "retrofit": "Square REST Client",
+                "logback": "Java Logging Framework",
+                "slf4j": "Java Logging Facade",
+                "express": "Node.js Web Framework",
+                "nestjs": "Node.js Enterprise Framework",
+                "react": "React Frontend Framework",
+                "vue": "Vue Frontend Framework",
+                "angular": "Angular Frontend Framework",
+                "typescript": "TypeScript Language",
+                "prisma": "Prisma ORM",
+                "typeorm": "TypeORM Framework",
+                "mongoose": "MongoDB ODM",
+                "jest": "JavaScript Testing Framework",
+                "vitest": "Vite Testing Framework",
+                "axios": "HTTP Client",
+                "zod": "TypeScript Data Validation",
+                "winston": "Node.js Logging Library",
+                "tailwind": "Tailwind CSS Framework",
+                "antd": "Ant Design UI Component Library",
+                "redux": "Redux State Management",
+                "graphql": "GraphQL Query Language",
+                "kafka": "Apache Kafka Message Queue",
+                "redis": "Redis Cache Database",
+                "mongodb": "MongoDB Document Database",
+                "mysql": "MySQL Relational Database",
+                "postgresql": "PostgreSQL Relational Database",
+            }
         
         return descriptions.get(name.lower(), "")
 
@@ -652,7 +706,8 @@ class DependenciesGenerator(BaseDocGenerator):
         
         summary = dep_data.get("summary", {})
 
-        prompt = f"""基于以下依赖分析，提供依赖管理建议：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下依赖分析，提供依赖管理建议：
 
 项目: {context.project_name}
 外部依赖数量: {summary.get('total_external', 0)}
@@ -669,7 +724,28 @@ class DependenciesGenerator(BaseDocGenerator):
     "cleanup_suggestions": ["清理建议1", "清理建议2"],
     "architecture_impact": "依赖对架构的影响分析"
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following dependency analysis, provide dependency management recommendations:
+
+Project: {context.project_name}
+External Dependencies: {summary.get('total_external', 0)}
+Internal Dependencies: {summary.get('total_internal', 0)}
+Circular Dependencies: {summary.get('total_circular', 0)}
+Hot Spot Modules: {summary.get('total_hot_spots', 0)}
+Strong Dependencies: {len(dep_data.get('dependency_strength', {}).get('strong', []))}
+
+Please return in JSON format:
+{{
+    "dependency_health": "Dependency health assessment (good/medium/poor)",
+    "security_concerns": ["security risk1", "security risk2"],
+    "update_recommendations": ["update recommendation1", "update recommendation2"],
+    "cleanup_suggestions": ["cleanup suggestion1", "cleanup suggestion2"],
+    "architecture_impact": "Analysis of dependency impact on architecture"
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

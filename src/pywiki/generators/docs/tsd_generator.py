@@ -55,7 +55,7 @@ class TSDGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="TSD 文档生成成功",
+                message=self.labels.get("tsd_doc_success", "TSD documentation generated successfully"),
                 metadata={"tsd_data": tsd_data.get("summary", {})},
             )
 
@@ -64,7 +64,7 @@ class TSDGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     async def _extract_tsd_data(self, context: DocGeneratorContext) -> dict[str, Any]:
@@ -752,7 +752,8 @@ class TSDGenerator(BaseDocGenerator):
 
         enhanced = {}
 
-        prompt = f"""基于以下技术设计信息，提供深入分析：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下技术设计信息，提供深入分析：
 
 项目: {context.project_name}
 设计决策数量: {len(tsd_data.get('design_decisions', []))}
@@ -766,7 +767,25 @@ class TSDGenerator(BaseDocGenerator):
     "pattern_recommendations": ["设计模式建议1", "设计模式建议2"],
     "improvement_roadmap": ["改进路线图1", "改进路线图2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following technical design information, provide in-depth analysis:
+
+Project: {context.project_name}
+Design Decisions: {len(tsd_data.get('design_decisions', []))}
+Technical Debt Items: {len(tsd_data.get('tech_debt', []))}
+Design Patterns: {len(tsd_data.get('patterns', []))}
+
+Please return in JSON format:
+{{
+    "architecture_quality": "Architecture quality assessment (good/medium/poor)",
+    "tech_debt_priority": ["priority tech debt1", "priority tech debt2"],
+    "pattern_recommendations": ["pattern recommendation1", "pattern recommendation2"],
+    "improvement_roadmap": ["improvement roadmap1", "improvement roadmap2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

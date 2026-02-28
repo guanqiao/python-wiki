@@ -51,6 +51,7 @@ class TechnicalDesignSpecGenerator(BaseDocGenerator):
             content = self.render_template(
                 project_name=context.project_name,
                 description=spec_data.get("description", ""),
+                spec_data=spec_data,
                 overview=spec_data.get("overview", {}),
                 architecture=spec_data.get("architecture", {}),
                 tech_stack=spec_data.get("tech_stack", {}),
@@ -73,7 +74,7 @@ class TechnicalDesignSpecGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="Technical Design Specification 文档生成成功",
+                message=self.labels.get("tds_doc_success", "Technical Design Specification generated successfully"),
                 metadata={"spec_data": spec_data.get("summary", {})},
             )
 
@@ -83,7 +84,7 @@ class TechnicalDesignSpecGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     async def _collect_spec_data(self, context: DocGeneratorContext) -> dict[str, Any]:
@@ -705,66 +706,66 @@ class TechnicalDesignSpecGenerator(BaseDocGenerator):
                     import_counts[base] = import_counts.get(base, 0) + 1
         
         tech_mapping = {
-            "Web框架": [
+            self.labels.get("web_frameworks", "Web Frameworks"): [
                 "flask", "django", "fastapi", "starlette", "tornado", "aiohttp",
                 "express", "koa", "spring", "spring-boot", "spring-webmvc", "spring-webflux",
                 "struts", "play", "spark", "quarkus", "micronaut",
                 "next", "nuxt", "gatsby", "sveltekit", "remix", "astro"
             ],
-            "数据库": [
+            self.labels.get("databases_tech", "Databases"): [
                 "sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "mongoose", "prisma",
                 "hibernate", "mybatis", "jpa", "jooq", "querydsl", "jdbc", "hikari",
                 "drizzle", "sequelize", "mikro-orm", "dexie", "lowdb"
             ],
-            "HTTP": [
+            self.labels.get("http_clients", "HTTP Clients"): [
                 "requests", "httpx", "urllib3", "aiohttp", "axios", "fetch", "okhttp",
                 "apache-httpclient", "retrofit", "feign", "resttemplate", "webclient",
                 "ky", "got", "superagent", "node-fetch"
             ],
-            "测试": [
+            self.labels.get("testing", "Testing"): [
                 "pytest", "unittest", "jest", "mocha", "junit",
                 "testng", "assertj", "vitest", "cypress", "playwright",
                 "testing-library", "supertest", "chai", "sinon"
             ],
-            "CLI": ["click", "typer", "argparse", "commander", "yargs", "commander-js", "oclif"],
-            "GUI": ["pyqt", "pyside", "tkinter", "electron", "tauri", "nw.js"],
-            "验证": [
+            self.labels.get("cli_tools", "CLI"): ["click", "typer", "argparse", "commander", "yargs", "commander-js", "oclif"],
+            self.labels.get("gui_frameworks", "GUI"): ["pyqt", "pyside", "tkinter", "electron", "tauri", "nw.js"],
+            self.labels.get("validation", "Validation"): [
                 "pydantic", "marshmallow", "cerberus", "joi", "zod", "yup",
                 "class-validator", "ajv", "validation-api", "hibernate-validator"
             ],
-            "日志": [
+            self.labels.get("logging_tech", "Logging"): [
                 "loguru", "logging", "winston", "log4j", "logback", "slf4j",
                 "pino", "bunyan"
             ],
-            "配置": ["dotenv", "pydantic_settings", "configparser", "convict", "config", "nconf"],
-            "异步": ["asyncio", "trio", "anyio", "celery", "bull", "rabbitmq", "kafka"],
-            "安全": [
+            self.labels.get("config_tech", "Configuration"): ["dotenv", "pydantic_settings", "configparser", "convict", "config", "nconf"],
+            self.labels.get("async_tech", "Async"): ["asyncio", "trio", "anyio", "celery", "bull", "rabbitmq", "kafka"],
+            self.labels.get("security", "Security"): [
                 "cryptography", "passlib", "jwt", "authlib", "bcrypt",
                 "passport", "helmet", "cors"
             ],
-            "微服务": [
+            self.labels.get("microservices", "Microservices"): [
                 "spring-cloud", "dubbo", "grpc", "eureka", "nacos", "consul", "etcd"
             ],
-            "消息队列": ["kafka", "rabbitmq", "activemq", "zeromq", "nats", "pulsar", "rocketmq"],
-            "缓存": ["redis", "memcached", "caffeine", "guava", "ehcache", "hazelcast"],
-            "监控": ["prometheus", "grafana", "elk", "zipkin", "jaeger", "sentry", "datadog"],
-            "构建工具": [
+            self.labels.get("message_queue", "Message Queue"): ["kafka", "rabbitmq", "activemq", "zeromq", "nats", "pulsar", "rocketmq"],
+            self.labels.get("caching", "Caching"): ["redis", "memcached", "caffeine", "guava", "ehcache", "hazelcast"],
+            self.labels.get("monitoring", "Monitoring"): ["prometheus", "grafana", "elk", "zipkin", "jaeger", "sentry", "datadog"],
+            self.labels.get("build_tools", "Build Tools"): [
                 "webpack", "vite", "rollup", "esbuild", "parcel", "turbo",
                 "maven", "gradle"
             ],
-            "前端框架": [
+            self.labels.get("frontend_frameworks", "Frontend Frameworks"): [
                 "react", "vue", "angular", "svelte", "solid", "preact", "alpine", "htmx"
             ],
-            "UI组件库": [
+            self.labels.get("ui_libraries", "UI Libraries"): [
                 "antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap", "bulma"
             ],
-            "状态管理": [
+            self.labels.get("state_management", "State Management"): [
                 "redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai", "valtio"
             ],
             "GraphQL": [
                 "graphql", "apollo", "urql", "relay", "graphql-yoga", "graphql-tools"
             ],
-            "API文档": [
+            self.labels.get("api_docs", "API Docs"): [
                 "swagger", "openapi", "springdoc", "swagger-ui", "redoc"
             ],
         }
@@ -930,7 +931,8 @@ class TechnicalDesignSpecGenerator(BaseDocGenerator):
 
         summary = spec_data.get("summary", {})
         
-        prompt = f"""基于以下项目信息，生成技术设计规范的综合分析：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下项目信息，生成技术设计规范的综合分析：
 
 项目: {context.project_name}
 已有文档:
@@ -951,7 +953,32 @@ class TechnicalDesignSpecGenerator(BaseDocGenerator):
     "improvement_roadmap": ["改进建议1", "改进建议2"],
     "compliance_notes": "合规性说明"
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following project information, generate a comprehensive technical design specification analysis:
+
+Project: {context.project_name}
+Available Documents:
+- Overview: {'Yes' if summary.get('has_overview') else 'No'}
+- Architecture: {'Yes' if summary.get('has_architecture') else 'No'}
+- Tech Stack: {'Yes' if summary.get('has_tech_stack') else 'No'}
+- API: {'Yes' if summary.get('has_api') else 'No'}
+- Database: {'Yes' if summary.get('has_database') else 'No'}
+
+Tech Stack: {json.dumps(spec_data.get('tech_stack', {}).get('categories', {}), ensure_ascii=False)}
+Primary Language: {spec_data.get('tech_stack', {}).get('primary_language', 'unknown')}
+
+Please return in JSON format:
+{{
+    "executive_summary": "Executive summary (within 100 words)",
+    "key_technical_decisions": ["key decision1", "key decision2"],
+    "risk_assessment": ["risk1", "risk2"],
+    "improvement_roadmap": ["improvement1", "improvement2"],
+    "compliance_notes": "Compliance notes"
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

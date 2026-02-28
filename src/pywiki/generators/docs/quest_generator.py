@@ -77,7 +77,7 @@ class QuestDesignDocGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="成功生成 Quest 设计文档",
+                message=self.labels.get("quest_doc_success", "Quest design document generated successfully"),
                 metadata={
                     "task_count": len(design_doc.tasks),
                     "tech_stack": list(design_doc.tech_stack.keys()),
@@ -89,7 +89,7 @@ class QuestDesignDocGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _create_design_doc(self, context: DocGeneratorContext) -> QuestDesignDoc:

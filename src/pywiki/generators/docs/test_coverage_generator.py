@@ -96,7 +96,7 @@ class TestCoverageGenerator(BaseDocGenerator):
                 content=content,
                 context=context,
                 success=True,
-                message="测试覆盖分析文档生成成功",
+                message=self.labels.get("test_coverage_doc_success", "Test coverage analysis generated successfully"),
                 metadata={"test_count": test_data["test_statistics"].get("total_tests", 0)},
             )
 
@@ -105,7 +105,7 @@ class TestCoverageGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_test_modules(self, context: DocGeneratorContext, project_language: str) -> list[dict[str, Any]]:
@@ -362,7 +362,8 @@ class TestCoverageGenerator(BaseDocGenerator):
         coverage = test_data.get("coverage_report", {})
         statistics = test_data.get("test_statistics", {})
 
-        prompt = f"""基于以下测试分析，提供测试改进建议：
+        if self.language == Language.ZH:
+            prompt = f"""基于以下测试分析，提供测试改进建议：
 
 项目: {context.project_name}
 测试总数: {statistics.get('total_tests', 0)}
@@ -376,7 +377,25 @@ class TestCoverageGenerator(BaseDocGenerator):
     "test_quality_tips": ["测试质量建议1", "测试质量建议2"],
     "ci_cd_recommendations": ["CI/CD 建议1", "CI/CD 建议2"]
 }}
-"""
+
+请务必使用中文回答。"""
+        else:
+            prompt = f"""Based on the following test analysis, provide test improvement suggestions:
+
+Project: {context.project_name}
+Total Tests: {statistics.get('total_tests', 0)}
+Module Coverage: {coverage.get('module_coverage', 0):.1f}%
+Untested Modules: {len(coverage.get('untested_modules', []))}
+
+Please return in JSON format:
+{{
+    "testing_strategy": "Testing strategy recommendation",
+    "priority_areas": ["priority area1", "priority area2"],
+    "test_quality_tips": ["quality tip1", "quality tip2"],
+    "ci_cd_recommendations": ["CI/CD recommendation1", "CI/CD recommendation2"]
+}}
+
+Please respond in English."""
 
         try:
             response = await llm_client.agenerate(prompt)

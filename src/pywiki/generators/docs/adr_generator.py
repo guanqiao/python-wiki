@@ -76,7 +76,7 @@ class ADRGenerator(BaseDocGenerator):
                     content="",
                     context=context,
                     success=False,
-                    message="未检测到架构决策",
+                    message=self.labels.get("adr_not_detected", "No architecture decisions detected"),
                 )
 
             # 生成 ADR 索引文档
@@ -98,7 +98,7 @@ class ADRGenerator(BaseDocGenerator):
                 content=full_content,
                 context=context,
                 success=True,
-                message=f"成功生成 {len(decisions)} 个 ADR",
+                message=self.labels.get("adr_generated", "Successfully generated {} ADRs").format(len(decisions)),
                 metadata={
                     "adr_count": len(decisions),
                     "adr_files": [str(p) for p, _ in adr_files],
@@ -117,7 +117,7 @@ class ADRGenerator(BaseDocGenerator):
                 content="",
                 context=context,
                 success=False,
-                message=f"生成失败: {str(e)}",
+                message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
 
     def _extract_decisions(self, context: DocGeneratorContext) -> list[ADRRecord]:
