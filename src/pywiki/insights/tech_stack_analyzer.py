@@ -60,38 +60,118 @@ class TechStackAnalysis:
 class TechStackAnalyzer:
     """技术栈分析器"""
 
-    def __init__(self):
+    def __init__(self, project_language: Optional[str] = None):
         self._tech_database = self._load_tech_database()
+        self._project_language = project_language
 
     def analyze_project(self, project_path: Path) -> TechStackAnalysis:
-        """分析项目技术栈"""
+        """分析项目技术栈 - 改进版，支持验证和修正"""
         analysis = TechStackAnalysis()
+        self._project_path = project_path  # 保存项目路径供验证使用
 
-        analysis.components = self._detect_from_imports(project_path)
-        analysis.components.extend(self._detect_from_config_files(project_path))
-        analysis.components.extend(self._detect_from_build_files(project_path))
+        # 1. 从配置文件检测（优先级更高，信息更准确）
+        config_components = self._detect_from_config_files(project_path)
 
-        seen_names = set()
-        unique_components = []
-        for comp in analysis.components:
-            if comp.name not in seen_names:
-                seen_names.add(comp.name)
-                unique_components.append(comp)
-        analysis.components = unique_components
+        # 2. 从导入语句检测
+        import_components = self._detect_from_imports(project_path)
 
-        for component in analysis.components:
-            if component.category == TechCategory.FRAMEWORK:
-                analysis.frameworks.append(component)
-            elif component.category == TechCategory.DATABASE:
-                analysis.databases.append(component)
-            elif component.category in (TechCategory.ORM, TechCategory.VALIDATION, TechCategory.HTTP_CLIENT, TechCategory.FRONTEND, TechCategory.UI_LIBRARY, TechCategory.STATE_MANAGEMENT):
-                analysis.libraries.append(component)
+        # 3. 从构建文件检测
+        build_components = self._detect_from_build_files(project_path)
+
+        # 合并并去重（按名称），优先保留有版本信息的组件
+        all_components = {}
+        for comp in config_components + import_components + build_components:
+            if comp.name not in all_components:
+                all_components[comp.name] = comp
             else:
-                analysis.tools.append(component)
+                # 合并使用位置
+                existing = all_components[comp.name]
+                existing.usage_locations.extend(comp.usage_locations)
+                existing.usage_locations = list(set(existing.usage_locations))  # 去重
+                # 保留版本信息
+                if comp.version and not existing.version:
+                    existing.version = comp.version
+                # 合并配置文件来源
+                existing.config_files.extend(comp.config_files)
+                existing.config_files = list(set(existing.config_files))
+
+        analysis.components = list(all_components.values())
+
+        # 分类组件
+        for component in analysis.components:
+            self._categorize_component(component, analysis)
+
+        # 验证和修正
+        self._validate_and_fix(analysis, project_path)
 
         analysis.summary = self._generate_summary(analysis)
-
         return analysis
+
+    def _categorize_component(self, component: TechComponent, analysis: TechStackAnalysis):
+        """将组件分类到对应的列表"""
+        if component.category == TechCategory.FRAMEWORK:
+            analysis.frameworks.append(component)
+        elif component.category == TechCategory.DATABASE:
+            analysis.databases.append(component)
+        elif component.category in (TechCategory.ORM, TechCategory.VALIDATION, TechCategory.HTTP_CLIENT,
+                                     TechCategory.FRONTEND, TechCategory.UI_LIBRARY, TechCategory.STATE_MANAGEMENT):
+            analysis.libraries.append(component)
+        else:
+            analysis.tools.append(component)
+
+    def _validate_and_fix(self, analysis: TechStackAnalysis, project_path: Path):
+        """验证并修正技术栈分析结果"""
+        # 修正1: 处理 ORM 框架冲突
+        # 如果同时检测到 Hibernate 和 MyBatis，优先保留 MyBatis（可能是传递依赖）
+        has_hibernate = any(c.name == "Hibernate" for c in analysis.components)
+        has_mybatis = any(c.name in ["MyBatis", "MyBatis-Plus"] for c in analysis.components)
+
+        if has_hibernate and has_mybatis:
+            # 移除 Hibernate
+            analysis.components = [c for c in analysis.components if c.name != "Hibernate"]
+            analysis.libraries = [c for c in analysis.libraries if c.name != "Hibernate"]
+
+        # 修正2: 验证前端框架（根据项目结构）
+        self._validate_frontend_frameworks(analysis, project_path)
+
+        # 修正3: 移除标准库（Python/Java 内置模块）
+        stdlib_names = {"ABC", "Typing", "Sys", "OS", "Re", "JSON", "Time", "Datetime", "Pathlib",
+                        "Collections", "Itertools", "Functools", "Dataclasses", "Enum", "Copy", "IO",
+                        "Pickle", "Threading", "Multiprocessing", "Socket", "SSL", "Hashlib", "HMAC",
+                        "Secrets", "UUID", "Random", "Math", "Decimal", "Fractions", "Statistics"}
+        analysis.components = [c for c in analysis.components if c.name not in stdlib_names]
+        analysis.libraries = [c for c in analysis.libraries if c.name not in stdlib_names]
+        analysis.tools = [c for c in analysis.tools if c.name not in stdlib_names]
+
+        # 修正4: 确保数据库连接池有正确描述
+        for comp in analysis.components:
+            if comp.name in ["Druid", "HikariCP"]:
+                comp.description = "数据库连接池"
+
+    def _validate_frontend_frameworks(self, analysis: TechStackAnalysis, project_path: Path):
+        """验证前端框架是否真实存在"""
+        frontend_indicators = {
+            "Vue": ["vue.config.js", "vue.config.ts", "vite.config.ts", "nuxt.config.ts", "nuxt.config.js"],
+            "React": ["react-scripts", "next.config.js", "next.config.ts", "vite.config.ts"],
+            "Angular": ["angular.json"],
+        }
+
+        # 检查项目根目录和子目录
+        detected_frameworks = set()
+        for framework, indicators in frontend_indicators.items():
+            for indicator in indicators:
+                if list(project_path.rglob(indicator)):
+                    detected_frameworks.add(framework)
+                    break
+
+        # 如果没有检测到前端框架配置文件，移除前端相关技术
+        if not detected_frameworks:
+            frontend_names = {"React", "Vue", "Angular", "Svelte", "Next.js", "Nuxt.js",
+                             "Ant Design", "Element Plus", "Element UI", "Vuetify",
+                             "Material UI", "Redux", "Vuex", "Pinia"}
+            analysis.components = [c for c in analysis.components if c.name not in frontend_names]
+            analysis.libraries = [c for c in analysis.libraries if c.name not in frontend_names]
+            analysis.frameworks = [c for c in analysis.frameworks if c.name not in frontend_names]
 
     def analyze_module(self, module: ModuleInfo) -> list[TechComponent]:
         """从模块分析技术栈"""
@@ -116,7 +196,7 @@ class TechStackAnalyzer:
                 import_lines = self._extract_imports(content)
 
                 for module_name in import_lines:
-                    component = self._identify_component(module_name)
+                    component = self._identify_component(module_name, "python")
                     if component and component.name not in detected_names:
                         detected_names.add(component.name)
                         component.usage_locations.append(str(py_file.relative_to(project_path)))
@@ -130,7 +210,7 @@ class TechStackAnalyzer:
                 imports = self._extract_java_imports(content)
 
                 for module_name in imports:
-                    component = self._identify_component(module_name)
+                    component = self._identify_component(module_name, "java")
                     if component and component.name not in detected_names:
                         detected_names.add(component.name)
                         component.usage_locations.append(str(java_file.relative_to(project_path)))
@@ -144,7 +224,7 @@ class TechStackAnalyzer:
                 imports = self._extract_ts_imports(content)
 
                 for module_name in imports:
-                    component = self._identify_component(module_name)
+                    component = self._identify_component(module_name, "typescript")
                     if component and component.name not in detected_names:
                         detected_names.add(component.name)
                         component.usage_locations.append(str(ts_file.relative_to(project_path)))
@@ -285,27 +365,97 @@ class TechStackAnalyzer:
 
         return imports
 
-    def _identify_component(self, module_name: str) -> Optional[TechComponent]:
-        """识别技术组件"""
-        base_module = module_name.split(".")[0].lower()
+    def _identify_component(self, module_name: str, source_language: Optional[str] = None) -> Optional[TechComponent]:
+        """识别技术组件 - 使用三级匹配策略"""
+        module_lower = module_name.lower()
+        effective_language = source_language or self._project_language
 
+        # 策略1: 完整包名前缀匹配（最精确，优先）
+        # 例如：com.alibaba.druid 匹配 com.alibaba.druid
+        # 按包名长度降序排序，优先匹配更具体的包（如 org.springframework.boot 优先于 org.springframework）
+        sorted_packages = sorted(
+            [(k, v) for k, v in self._tech_database.items() if "." in k],
+            key=lambda x: len(x[0]),
+            reverse=True
+        )
+        for full_package, info in sorted_packages:
+            if module_lower.startswith(full_package.lower()):
+                if self._is_compatible_language(info, effective_language):
+                    return TechComponent(
+                        name=info["name"],
+                        category=TechCategory(info["category"]),
+                        description=info.get("description", ""),
+                    )
+
+        # 策略2: 基础模块名匹配（用于简单导入如 "react", "vue", "flask"）
+        base_module = module_name.split(".")[0].lower()
         if base_module in self._tech_database:
             info = self._tech_database[base_module]
-            return TechComponent(
-                name=info["name"],
-                category=TechCategory(info["category"]),
-                description=info.get("description", ""),
-            )
-
-        for java_package, info in self._tech_database.items():
-            if module_name.startswith(java_package) or java_package in module_name.lower():
+            if self._is_compatible_language(info, effective_language):
                 return TechComponent(
                     name=info["name"],
                     category=TechCategory(info["category"]),
                     description=info.get("description", ""),
                 )
 
+        # 策略3: 部分匹配（用于复杂包名中的关键字匹配）
+        # 例如：org.springframework.boot 匹配 org.springframework.boot（更长的优先）
+        # 按包名长度降序排序，优先匹配更具体的包
+        sorted_tech_items = sorted(
+            [(k, v) for k, v in self._tech_database.items() if "." in k],
+            key=lambda x: len(x[0]),
+            reverse=True
+        )
+        for tech_key, info in sorted_tech_items:
+            if tech_key in module_lower:
+                if self._is_compatible_language(info, effective_language):
+                    return TechComponent(
+                        name=info["name"],
+                        category=TechCategory(info["category"]),
+                        description=info.get("description", ""),
+                    )
+
         return None
+
+    def _is_compatible_language(self, tech_info: dict, source_language: Optional[str] = None) -> bool:
+        """检查技术是否与项目语言兼容"""
+        effective_language = source_language or self._project_language
+        if not effective_language:
+            return True
+        
+        tech_languages = tech_info.get("languages", [])
+        if not tech_languages:
+            tech_key = tech_info.get("name", "").lower()
+            tech_languages = self._infer_tech_languages(tech_key, tech_info)
+            if not tech_languages:
+                return True
+        
+        return effective_language.lower() in [lang.lower() for lang in tech_languages]
+
+    def _infer_tech_languages(self, tech_key: str, tech_info: dict) -> list[str]:
+        """根据技术名称推断适用的语言"""
+        java_prefixes = ("org.", "com.", "io.", "net.", "javax.", "jakarta.")
+        ts_prefixes = ("@", "react-", "vue-", "@angular", "@nestjs", "@prisma", "@mui", "@redux", "@apollo", "@playwright")
+        
+        name_lower = tech_key.lower()
+        description = tech_info.get("description", "").lower()
+        
+        if any(name_lower.startswith(prefix) for prefix in java_prefixes):
+            return ["java"]
+        
+        if any(name_lower.startswith(prefix) for prefix in ts_prefixes):
+            return ["typescript", "javascript"]
+        
+        if "java" in description or "spring" in description or "mybatis" in description:
+            return ["java"]
+        
+        if "node.js" in description or "javascript" in description or "typescript" in description or "react" in description or "vue" in description:
+            return ["typescript", "javascript"]
+        
+        if "python" in description or "django" in description or "flask" in description or "fastapi" in description:
+            return ["python"]
+        
+        return []
 
     def _parse_pyproject(self, file_path: Path) -> dict:
         """解析 pyproject.toml"""
@@ -372,7 +522,7 @@ class TechStackAnalyzer:
         return deps
 
     def _parse_pom_xml(self, file_path: Path) -> dict:
-        """解析 pom.xml"""
+        """解析 pom.xml - 改进版，支持 scope 过滤和 parent 解析"""
         deps = {}
         try:
             import xml.etree.ElementTree as ET
@@ -380,17 +530,50 @@ class TechStackAnalyzer:
             root = tree.getroot()
 
             ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
+
+            # 解析 dependencies
             for dep in root.findall('.//m:dependency', ns):
+                group_id = dep.find('m:groupId', ns)
+                artifact_id = dep.find('m:artifactId', ns)
+                version = dep.find('m:version', ns)
+                scope = dep.find('m:scope', ns)
+
+                if group_id is not None and artifact_id is not None:
+                    # 跳过 test 和 provided 依赖
+                    if scope is not None and scope.text in ('test', 'provided'):
+                        continue
+
+                    name = f"{group_id.text}:{artifact_id.text}"
+                    ver = version.text if version is not None else None
+                    deps[name] = ver
+
+            # 解析 dependencyManagement（用于获取版本号）
+            for dep in root.findall('.//m:dependencyManagement/m:dependencies/m:dependency', ns):
                 group_id = dep.find('m:groupId', ns)
                 artifact_id = dep.find('m:artifactId', ns)
                 version = dep.find('m:version', ns)
 
                 if group_id is not None and artifact_id is not None:
                     name = f"{group_id.text}:{artifact_id.text}"
-                    ver = version.text if version is not None else None
+                    if name not in deps or deps[name] is None:
+                        ver = version.text if version is not None else None
+                        deps[name] = ver
+
+            # 解析 parent
+            parent = root.find('m:parent', ns)
+            if parent is not None:
+                parent_group = parent.find('m:groupId', ns)
+                parent_artifact = parent.find('m:artifactId', ns)
+                parent_version = parent.find('m:version', ns)
+                if parent_group is not None and parent_artifact is not None:
+                    name = f"{parent_group.text}:{parent_artifact.text}"
+                    ver = parent_version.text if parent_version is not None else None
                     deps[name] = ver
-        except Exception:
+
+        except Exception as e:
+            # 静默处理解析错误，但保留调试可能性
             pass
+
         return deps
 
     def _parse_build_gradle(self, file_path: Path) -> dict:
@@ -469,87 +652,170 @@ class TechStackAnalyzer:
             "elasticsearch": {"name": "Elasticsearch", "category": "database", "description": "搜索引擎"},
             "pika": {"name": "Pika", "category": "message_queue", "description": "RabbitMQ 客户端"},
 
-            "celery": {"name": "Celery", "category": "task_queue", "description": "分布式任务队列"},
-            "dramatiq": {"name": "Dramatiq", "category": "task_queue", "description": "任务队列"},
-            "huey": {"name": "Huey", "category": "task_queue", "description": "轻量级任务队列"},
-            "rq": {"name": "RQ", "category": "task_queue", "description": "Redis 队列"},
-            "dramatiq": {"name": "Dramatiq", "category": "task_queue", "description": "任务队列"},
+            "celery": {"name": "Celery", "category": "task_queue", "description": "分布式任务队列", "languages": ["python"]},
+            "dramatiq": {"name": "Dramatiq", "category": "task_queue", "description": "任务队列", "languages": ["python"]},
+            "huey": {"name": "Huey", "category": "task_queue", "description": "轻量级任务队列", "languages": ["python"]},
+            "rq": {"name": "RQ", "category": "task_queue", "description": "Redis 队列", "languages": ["python"]},
+            "dramatiq": {"name": "Dramatiq", "category": "task_queue", "description": "任务队列", "languages": ["python"]},
 
-            "kafka": {"name": "Kafka", "category": "message_queue", "description": "Kafka 客户端"},
-            "aio_pika": {"name": "AIO Pika", "category": "message_queue", "description": "异步 RabbitMQ"},
-            "confluent_kafka": {"name": "Confluent Kafka", "category": "message_queue", "description": "Kafka 客户端"},
+            "kafka": {"name": "Kafka", "category": "message_queue", "description": "Kafka 客户端", "languages": ["python"]},
+            "aio_pika": {"name": "AIO Pika", "category": "message_queue", "description": "异步 RabbitMQ", "languages": ["python"]},
+            "confluent_kafka": {"name": "Confluent Kafka", "category": "message_queue", "description": "Kafka 客户端", "languages": ["python"]},
 
-            "pytest": {"name": "Pytest", "category": "testing", "description": "测试框架"},
-            "unittest": {"name": "Unittest", "category": "testing", "description": "内置测试框架"},
-            "nose": {"name": "Nose", "category": "testing", "description": "测试框架"},
-            "hypothesis": {"name": "Hypothesis", "category": "testing", "description": "属性测试"},
-            "faker": {"name": "Faker", "category": "testing", "description": "测试数据生成"},
-            "mock": {"name": "Mock", "category": "testing", "description": "Mock 库"},
+            "pytest": {"name": "Pytest", "category": "testing", "description": "测试框架", "languages": ["python"]},
+            "unittest": {"name": "Unittest", "category": "testing", "description": "内置测试框架", "languages": ["python"]},
+            "nose": {"name": "Nose", "category": "testing", "description": "测试框架", "languages": ["python"]},
+            "hypothesis": {"name": "Hypothesis", "category": "testing", "description": "属性测试", "languages": ["python"]},
+            "faker": {"name": "Faker", "category": "testing", "description": "测试数据生成", "languages": ["python"]},
+            "mock": {"name": "Mock", "category": "testing", "description": "Mock 库", "languages": ["python"]},
 
-            "pydantic": {"name": "Pydantic", "category": "validation", "description": "数据验证"},
-            "marshmallow": {"name": "Marshmallow", "category": "validation", "description": "对象序列化"},
-            "cerberus": {"name": "Cerberus", "category": "validation", "description": "数据验证"},
-            "voluptuous": {"name": "Voluptuous", "category": "validation", "description": "数据验证"},
+            "pydantic": {"name": "Pydantic", "category": "validation", "description": "数据验证", "languages": ["python"]},
+            "marshmallow": {"name": "Marshmallow", "category": "validation", "description": "对象序列化", "languages": ["python"]},
+            "cerberus": {"name": "Cerberus", "category": "validation", "description": "数据验证", "languages": ["python"]},
+            "voluptuous": {"name": "Voluptuous", "category": "validation", "description": "数据验证", "languages": ["python"]},
 
-            "requests": {"name": "Requests", "category": "http_client", "description": "HTTP 客户端"},
-            "httpx": {"name": "HTTPX", "category": "http_client", "description": "异步 HTTP 客户端"},
-            "urllib3": {"name": "urllib3", "category": "http_client", "description": "HTTP 库"},
-            "aiohttp": {"name": "AIOHTTP", "category": "http_client", "description": "异步 HTTP 客户端"},
+            "requests": {"name": "Requests", "category": "http_client", "description": "HTTP 客户端", "languages": ["python"]},
+            "httpx": {"name": "HTTPX", "category": "http_client", "description": "异步 HTTP 客户端", "languages": ["python"]},
+            "urllib3": {"name": "urllib3", "category": "http_client", "description": "HTTP 库", "languages": ["python"]},
+            "aiohttp": {"name": "AIOHTTP", "category": "http_client", "description": "异步 HTTP 客户端", "languages": ["python"]},
 
-            "asyncio": {"name": "Asyncio", "category": "async", "description": "异步 IO"},
-            "trio": {"name": "Trio", "category": "async", "description": "异步框架"},
-            "anyio": {"name": "AnyIO", "category": "async", "description": "异步兼容层"},
+            "asyncio": {"name": "Asyncio", "category": "async", "description": "异步 IO", "languages": ["python"]},
+            "trio": {"name": "Trio", "category": "async", "description": "异步框架", "languages": ["python"]},
+            "anyio": {"name": "AnyIO", "category": "async", "description": "异步兼容层", "languages": ["python"]},
 
-            "cryptography": {"name": "Cryptography", "category": "security", "description": "加密库"},
-            "passlib": {"name": "Passlib", "category": "security", "description": "密码哈希"},
-            "jwt": {"name": "PyJWT", "category": "security", "description": "JWT 处理"},
-            "authlib": {"name": "Authlib", "category": "security", "description": "认证库"},
-            "bcrypt": {"name": "Bcrypt", "category": "security", "description": "密码哈希"},
+            "cryptography": {"name": "Cryptography", "category": "security", "description": "加密库", "languages": ["python"]},
+            "passlib": {"name": "Passlib", "category": "security", "description": "密码哈希", "languages": ["python"]},
+            "jwt": {"name": "PyJWT", "category": "security", "description": "JWT 处理", "languages": ["python"]},
+            "authlib": {"name": "Authlib", "category": "security", "description": "认证库", "languages": ["python"]},
+            "bcrypt": {"name": "Bcrypt", "category": "security", "description": "密码哈希", "languages": ["python"]},
 
-            "logging": {"name": "Logging", "category": "logging", "description": "日志模块"},
-            "loguru": {"name": "Loguru", "category": "logging", "description": "日志库"},
-            "structlog": {"name": "Structlog", "category": "logging", "description": "结构化日志"},
+            "logging": {"name": "Logging", "category": "logging", "description": "日志模块", "languages": ["python"]},
+            "loguru": {"name": "Loguru", "category": "logging", "description": "日志库", "languages": ["python"]},
+            "structlog": {"name": "Structlog", "category": "logging", "description": "结构化日志", "languages": ["python"]},
 
-            "pyyaml": {"name": "PyYAML", "category": "config", "description": "YAML 解析"},
-            "toml": {"name": "TOML", "category": "config", "description": "TOML 解析"},
-            "dynaconf": {"name": "Dynaconf", "category": "config", "description": "配置管理"},
-            "python-dotenv": {"name": "Python-dotenv", "category": "config", "description": "环境变量"},
-            "dotenv": {"name": "Python-dotenv", "category": "config", "description": "环境变量"},
+            "pyyaml": {"name": "PyYAML", "category": "config", "description": "YAML 解析", "languages": ["python"]},
+            "toml": {"name": "TOML", "category": "config", "description": "TOML 解析", "languages": ["python"]},
+            "dynaconf": {"name": "Dynaconf", "category": "config", "description": "配置管理", "languages": ["python"]},
+            "python-dotenv": {"name": "Python-dotenv", "category": "config", "description": "环境变量", "languages": ["python"]},
+            "dotenv": {"name": "Python-dotenv", "category": "config", "description": "环境变量", "languages": ["python"]},
 
-            "prometheus": {"name": "Prometheus", "category": "monitoring", "description": "监控"},
-            "prometheus_client": {"name": "Prometheus Client", "category": "monitoring", "description": "Prometheus 客户端"},
-            "sentry": {"name": "Sentry", "category": "monitoring", "description": "错误追踪"},
-            "opentelemetry": {"name": "OpenTelemetry", "category": "monitoring", "description": "可观测性"},
+            "prometheus": {"name": "Prometheus", "category": "monitoring", "description": "监控", "languages": ["python"]},
+            "prometheus_client": {"name": "Prometheus Client", "category": "monitoring", "description": "Prometheus 客户端", "languages": ["python"]},
+            "sentry": {"name": "Sentry", "category": "monitoring", "description": "错误追踪", "languages": ["python"]},
+            "opentelemetry": {"name": "OpenTelemetry", "category": "monitoring", "description": "可观测性", "languages": ["python"]},
 
-            "boto3": {"name": "Boto3", "category": "cloud", "description": "AWS SDK"},
-            "google.cloud": {"name": "Google Cloud", "category": "cloud", "description": "GCP SDK"},
-            "azure": {"name": "Azure SDK", "category": "cloud", "description": "Azure SDK"},
+            "boto3": {"name": "Boto3", "category": "cloud", "description": "AWS SDK", "languages": ["python"]},
+            "google.cloud": {"name": "Google Cloud", "category": "cloud", "description": "GCP SDK", "languages": ["python"]},
+            "azure": {"name": "Azure SDK", "category": "cloud", "description": "Azure SDK", "languages": ["python"]},
 
-            "pandas": {"name": "Pandas", "category": "orm", "description": "数据处理库"},
-            "numpy": {"name": "NumPy", "category": "orm", "description": "数值计算库"},
-            "scipy": {"name": "SciPy", "category": "orm", "description": "科学计算库"},
-            "sklearn": {"name": "Scikit-learn", "category": "orm", "description": "机器学习库"},
-            "torch": {"name": "PyTorch", "category": "orm", "description": "深度学习框架"},
-            "tensorflow": {"name": "TensorFlow", "category": "orm", "description": "深度学习框架"},
-            "transformers": {"name": "Transformers", "category": "orm", "description": "Hugging Face Transformers"},
+            "pandas": {"name": "Pandas", "category": "orm", "description": "数据处理库", "languages": ["python"]},
+            "numpy": {"name": "NumPy", "category": "orm", "description": "数值计算库", "languages": ["python"]},
+            "scipy": {"name": "SciPy", "category": "orm", "description": "科学计算库", "languages": ["python"]},
+            "sklearn": {"name": "Scikit-learn", "category": "orm", "description": "机器学习库", "languages": ["python"]},
+            "torch": {"name": "PyTorch", "category": "orm", "description": "深度学习框架", "languages": ["python"]},
+            "tensorflow": {"name": "TensorFlow", "category": "orm", "description": "深度学习框架", "languages": ["python"]},
+            "transformers": {"name": "Transformers", "category": "orm", "description": "Hugging Face Transformers", "languages": ["python"]},
 
-            "click": {"name": "Click", "category": "config", "description": "命令行工具库"},
-            "typer": {"name": "Typer", "category": "config", "description": "命令行工具库"},
-            "rich": {"name": "Rich", "category": "config", "description": "终端美化库"},
-            "argparse": {"name": "Argparse", "category": "config", "description": "命令行参数解析"},
+            "click": {"name": "Click", "category": "config", "description": "命令行工具库", "languages": ["python"]},
+            "typer": {"name": "Typer", "category": "config", "description": "命令行工具库", "languages": ["python"]},
+            "rich": {"name": "Rich", "category": "config", "description": "终端美化库", "languages": ["python"]},
+            "argparse": {"name": "Argparse", "category": "config", "description": "命令行参数解析", "languages": ["python"]},
 
-            "jinja2": {"name": "Jinja2", "category": "template_engine", "description": "模板引擎"},
-            "mako": {"name": "Mako", "category": "template_engine", "description": "模板引擎"},
-            "chameleon": {"name": "Chameleon", "category": "template_engine", "description": "模板引擎"},
+            "jinja2": {"name": "Jinja2", "category": "template_engine", "description": "模板引擎", "languages": ["python"]},
+            "mako": {"name": "Mako", "category": "template_engine", "description": "模板引擎", "languages": ["python"]},
+            "chameleon": {"name": "Chameleon", "category": "template_engine", "description": "模板引擎", "languages": ["python"]},
 
-            "websockets": {"name": "WebSockets", "category": "websocket", "description": "WebSocket 库"},
-            "socketio": {"name": "Socket.IO", "category": "websocket", "description": "WebSocket 库"},
+            "websockets": {"name": "WebSockets", "category": "websocket", "description": "WebSocket 库", "languages": ["python"]},
+            "socketio": {"name": "Socket.IO", "category": "websocket", "description": "WebSocket 库", "languages": ["python"]},
 
-            "orjson": {"name": "Orjson", "category": "serialization", "description": "高性能 JSON 库"},
-            "msgpack": {"name": "Msgpack", "category": "serialization", "description": "MessagePack 库"},
-            "ujson": {"name": "UJSON", "category": "serialization", "description": "快速 JSON 库"},
+            "orjson": {"name": "Orjson", "category": "serialization", "description": "高性能 JSON 库", "languages": ["python"]},
+            "msgpack": {"name": "Msgpack", "category": "serialization", "description": "MessagePack 库", "languages": ["python"]},
+            "ujson": {"name": "UJSON", "category": "serialization", "description": "快速 JSON 库", "languages": ["python"]},
 
-            "org.springframework": {"name": "Spring Framework", "category": "framework", "description": "Java 企业级框架"},
+            "abc": {"name": "ABC", "category": "config", "description": "抽象基类模块", "languages": ["python"]},
+            "typing": {"name": "Typing", "category": "config", "description": "类型提示模块", "languages": ["python"]},
+            "sys": {"name": "Sys", "category": "config", "description": "系统模块", "languages": ["python"]},
+            "os": {"name": "OS", "category": "config", "description": "操作系统模块", "languages": ["python"]},
+            "re": {"name": "Re", "category": "config", "description": "正则表达式模块", "languages": ["python"]},
+            "json": {"name": "JSON", "category": "serialization", "description": "JSON 模块", "languages": ["python"]},
+            "time": {"name": "Time", "category": "config", "description": "时间模块", "languages": ["python"]},
+            "datetime": {"name": "Datetime", "category": "config", "description": "日期时间模块", "languages": ["python"]},
+            "pathlib": {"name": "Pathlib", "category": "config", "description": "路径模块", "languages": ["python"]},
+            "collections": {"name": "Collections", "category": "config", "description": "集合模块", "languages": ["python"]},
+            "itertools": {"name": "Itertools", "category": "config", "description": "迭代器模块", "languages": ["python"]},
+            "functools": {"name": "Functools", "category": "config", "description": "函数工具模块", "languages": ["python"]},
+            "dataclasses": {"name": "Dataclasses", "category": "config", "description": "数据类模块", "languages": ["python"]},
+            "enum": {"name": "Enum", "category": "config", "description": "枚举模块", "languages": ["python"]},
+            "copy": {"name": "Copy", "category": "config", "description": "复制模块", "languages": ["python"]},
+            "io": {"name": "IO", "category": "config", "description": "IO模块", "languages": ["python"]},
+            "pickle": {"name": "Pickle", "category": "serialization", "description": "序列化模块", "languages": ["python"]},
+            "threading": {"name": "Threading", "category": "async", "description": "线程模块", "languages": ["python"]},
+            "multiprocessing": {"name": "Multiprocessing", "category": "async", "description": "多进程模块", "languages": ["python"]},
+            "socket": {"name": "Socket", "category": "async", "description": "套接字模块", "languages": ["python"]},
+            "ssl": {"name": "SSL", "category": "security", "description": "SSL模块", "languages": ["python"]},
+            "hashlib": {"name": "Hashlib", "category": "security", "description": "哈希模块", "languages": ["python"]},
+            "hmac": {"name": "HMAC", "category": "security", "description": "HMAC模块", "languages": ["python"]},
+            "secrets": {"name": "Secrets", "category": "security", "description": "安全随机模块", "languages": ["python"]},
+            "uuid": {"name": "UUID", "category": "config", "description": "UUID模块", "languages": ["python"]},
+            "random": {"name": "Random", "category": "config", "description": "随机模块", "languages": ["python"]},
+            "math": {"name": "Math", "category": "orm", "description": "数学模块", "languages": ["python"]},
+            "decimal": {"name": "Decimal", "category": "orm", "description": "十进制模块", "languages": ["python"]},
+            "fractions": {"name": "Fractions", "category": "orm", "description": "分数模块", "languages": ["python"]},
+            "statistics": {"name": "Statistics", "category": "orm", "description": "统计模块", "languages": ["python"]},
+            "tempfile": {"name": "Tempfile", "category": "config", "description": "临时文件模块", "languages": ["python"]},
+            "shutil": {"name": "Shutil", "category": "config", "description": "文件操作模块", "languages": ["python"]},
+            "glob": {"name": "Glob", "category": "config", "description": "文件匹配模块", "languages": ["python"]},
+            "subprocess": {"name": "Subprocess", "category": "config", "description": "子进程模块", "languages": ["python"]},
+            "contextlib": {"name": "Contextlib", "category": "config", "description": "上下文管理模块", "languages": ["python"]},
+            "traceback": {"name": "Traceback", "category": "logging", "description": "追踪模块", "languages": ["python"]},
+            "warnings": {"name": "Warnings", "category": "logging", "description": "警告模块", "languages": ["python"]},
+            "weakref": {"name": "Weakref", "category": "config", "description": "弱引用模块", "languages": ["python"]},
+            "heapq": {"name": "Heapq", "category": "config", "description": "堆队列模块", "languages": ["python"]},
+            "bisect": {"name": "Bisect", "category": "config", "description": "二分查找模块", "languages": ["python"]},
+            "array": {"name": "Array", "category": "orm", "description": "数组模块", "languages": ["python"]},
+            "queue": {"name": "Queue", "category": "async", "description": "队列模块", "languages": ["python"]},
+            "sched": {"name": "Sched", "category": "task_queue", "description": "调度模块", "languages": ["python"]},
+            "html": {"name": "HTML", "category": "template_engine", "description": "HTML模块", "languages": ["python"]},
+            "xml": {"name": "XML", "category": "serialization", "description": "XML模块", "languages": ["python"]},
+            "csv": {"name": "CSV", "category": "serialization", "description": "CSV模块", "languages": ["python"]},
+            "sqlite3": {"name": "SQLite3", "category": "database", "description": "SQLite模块", "languages": ["python"]},
+            "zlib": {"name": "Zlib", "category": "config", "description": "压缩模块", "languages": ["python"]},
+            "gzip": {"name": "Gzip", "category": "config", "description": "GZIP模块", "languages": ["python"]},
+            "zipfile": {"name": "Zipfile", "category": "config", "description": "ZIP模块", "languages": ["python"]},
+            "tarfile": {"name": "Tarfile", "category": "config", "description": "TAR模块", "languages": ["python"]},
+            "base64": {"name": "Base64", "category": "serialization", "description": "Base64模块", "languages": ["python"]},
+            "binascii": {"name": "Binascii", "category": "config", "description": "二进制ASCII模块", "languages": ["python"]},
+            "struct": {"name": "Struct", "category": "serialization", "description": "结构体模块", "languages": ["python"]},
+            "codecs": {"name": "Codecs", "category": "config", "description": "编解码模块", "languages": ["python"]},
+            "locale": {"name": "Locale", "category": "config", "description": "本地化模块", "languages": ["python"]},
+            "gettext": {"name": "Gettext", "category": "config", "description": "国际化模块", "languages": ["python"]},
+            "argparse": {"name": "Argparse", "category": "config", "description": "命令行参数解析", "languages": ["python"]},
+            "optparse": {"name": "Optparse", "category": "config", "description": "命令行选项解析", "languages": ["python"]},
+            "getopt": {"name": "Getopt", "category": "config", "description": "命令行选项解析", "languages": ["python"]},
+            "platform": {"name": "Platform", "category": "config", "description": "平台模块", "languages": ["python"]},
+            "errno": {"name": "Errno", "category": "config", "description": "错误号模块", "languages": ["python"]},
+            "signal": {"name": "Signal", "category": "async", "description": "信号模块", "languages": ["python"]},
+            "mmap": {"name": "Mmap", "category": "config", "description": "内存映射模块", "languages": ["python"]},
+            "select": {"name": "Select", "category": "async", "description": "IO多路复用模块", "languages": ["python"]},
+            "selectors": {"name": "Selectors", "category": "async", "description": "选择器模块", "languages": ["python"]},
+            "email": {"name": "Email", "category": "config", "description": "邮件模块", "languages": ["python"]},
+            "smtplib": {"name": "Smtplib", "category": "http_client", "description": "SMTP模块", "languages": ["python"]},
+            "poplib": {"name": "Poplib", "category": "http_client", "description": "POP3模块", "languages": ["python"]},
+            "imaplib": {"name": "Imaplib", "category": "http_client", "description": "IMAP模块", "languages": ["python"]},
+            "ftplib": {"name": "Ftplib", "category": "http_client", "description": "FTP模块", "languages": ["python"]},
+            "http": {"name": "HTTP", "category": "http_client", "description": "HTTP模块", "languages": ["python"]},
+            "urllib": {"name": "Urllib", "category": "http_client", "description": "URL模块", "languages": ["python"]},
+            "xmlrpc": {"name": "XMLRPC", "category": "http_client", "description": "XML-RPC模块", "languages": ["python"]},
+            "ipaddress": {"name": "Ipaddress", "category": "config", "description": "IP地址模块", "languages": ["python"]},
+            "socketserver": {"name": "Socketserver", "category": "framework", "description": "套接字服务器模块", "languages": ["python"]},
+            "http.server": {"name": "HTTP Server", "category": "framework", "description": "HTTP服务器模块", "languages": ["python"]},
+            "cgi": {"name": "CGI", "category": "framework", "description": "CGI模块", "languages": ["python"]},
+            "cgitb": {"name": "CGITB", "category": "logging", "description": "CGI追踪模块", "languages": ["python"]},
+            "wsgiref": {"name": "WSGIRef", "category": "framework", "description": "WSGI参考模块", "languages": ["python"]},
+            "asynchat": {"name": "Asynchat", "category": "async", "description": "异步聊天模块", "languages": ["python"]},
+            "asyncore": {"name": "Asyncore", "category": "async", "description": "异步核心模块", "languages": ["python"]},
+
+            "org.springframework": {"name": "Spring Framework", "category": "framework", "description": "Java 企业级框架", "languages": ["java"]},
             "org.springframework.boot": {"name": "Spring Boot", "category": "framework", "description": "Spring Boot 框架"},
             "org.springframework.cloud": {"name": "Spring Cloud", "category": "framework", "description": "微服务框架"},
             "org.springframework.security": {"name": "Spring Security", "category": "security", "description": "安全框架"},
@@ -620,8 +886,8 @@ class TechStackAnalyzer:
             "org.apache.zookeeper": {"name": "ZooKeeper", "category": "config", "description": "配置中心"},
             "com.ctrip.framework.apollo": {"name": "Apollo", "category": "config", "description": "配置中心"},
 
-            "com.alibaba.druid": {"name": "Druid", "category": "database", "description": "数据库连接池"},
-            "com.zaxxer.hikari": {"name": "HikariCP", "category": "database", "description": "数据库连接池"},
+            "com.alibaba.druid": {"name": "Druid", "category": "database", "description": "数据库连接池", "languages": ["java"]},
+            "com.zaxxer.hikari": {"name": "HikariCP", "category": "database", "description": "数据库连接池", "languages": ["java"]},
             "org.apache.tomcat": {"name": "Tomcat", "category": "framework", "description": "Servlet 容器"},
 
             "com.baomidou": {"name": "MyBatis-Plus", "category": "orm", "description": "MyBatis 增强工具"},

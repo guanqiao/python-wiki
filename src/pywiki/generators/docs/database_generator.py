@@ -249,6 +249,68 @@ class DatabaseGenerator(BaseDocGenerator):
         
         return indexes
 
+    def _is_valid_table_name(self, name: str) -> bool:
+        """验证表名是否有效"""
+        if not name or len(name) < 2:
+            return False
+        
+        name_clean = name.strip()
+        if len(name_clean) < 2:
+            return False
+        
+        if ' ' in name_clean or '\n' in name_clean or '\t' in name_clean:
+            return False
+        
+        invalid_patterns = [
+            'implements', 'extends', 'class', 'interface', 'abstract',
+            'public', 'private', 'protected', 'static', 'final',
+            'return', 'import', 'package', 'void', 'new',
+            '@', '(', ')', '{', '}', '<', '>', ';', '=',
+            'implements s', 'm impleme', 'lt<t>', 'roller', 'ller',
+            'public class', 'private class', 'protected class',
+            'private string', 'private int', 'private long', 'private boolean',
+            'private final', 'public static', 'private static',
+            'requestmapping', 'getmapping', 'postmapping', 'putmapping', 'deletemapping',
+            'restcontroller', 'controller', 'service', 'repository',
+            'serializ', 'compar', 'equals', 'hashcode', 'tostring',
+            'override', 'suppresswarnings', 'deprecated',
+            'nullable', 'notnull', 'nonnullable',
+            'parameter', 'method', 'constructor', 'exception',
+            'arraylist', 'hashmap', 'hashset', 'linkedlist',
+            'string[]', 'int[]', 'long[]', 'boolean[]',
+            'object', 'system', 'printstream', 'runtime',
+            'throw', 'throws', 'try', 'catch', 'finally',
+            'if', 'else', 'for', 'while', 'switch', 'case',
+            'null', 'true', 'false', 'this', 'super',
+            'list<', 'map<', 'set<', 'collection<',
+            'req', 'resp', 'dto', 'vo', 'bo', 'po',
+            'exception', 'error', 'throwable',
+            'annotation', 'documented', 'retention', 'target',
+            'element_type', 'runtime_visible',
+        ]
+        
+        name_lower = name_clean.lower()
+        for pattern in invalid_patterns:
+            if pattern.lower() in name_lower:
+                return False
+        
+        if name_lower.startswith('"') or name_lower.startswith("'"):
+            return False
+        
+        if any(c in name_clean for c in ['`', '\\', '/', '*', '+', '-', '&', '|', '^', '%', '!', '~']):
+            return False
+        
+        if name_clean[0].isdigit():
+            return False
+        
+        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name_clean):
+            if len(name_clean) > 2 and name_clean.islower():
+                return True
+            elif len(name_clean) > 2 and '_' in name_clean:
+                return True
+        
+        return False
+
     def _extract_java_tables(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
         """提取 Java 数据库模型"""
         tables = []
@@ -256,89 +318,120 @@ class DatabaseGenerator(BaseDocGenerator):
         if not context.parse_result or not context.parse_result.modules:
             return tables
 
-        entity_keywords = ["entity", "model", "domain", "pojo", "dto"]
+        non_entity_patterns = [
+            'Controller', 'RestController', 'ControllerAdvice',
+            'Service', 'ServiceImpl', 'Component',
+            'Repository', 'Dao', 'Mapper',
+            'Configuration', 'Config', 'Bean',
+            'Aspect', 'Interceptor', 'Filter',
+            'Handler', 'Exception', 'Error',
+            'Util', 'Utils', 'Helper', 'HelperImpl',
+            'DTO', 'VO', 'BO', 'Request', 'Response',
+            'Param', 'Result', 'ResponseEntity',
+            'HttpRequest', 'HttpResponse', 'Servlet',
+            'Application', 'Runner', 'CommandLineRunner',
+            'ExceptionHandler', 'ControllerAdvice',
+        ]
 
         for module in context.parse_result.modules:
-            module_lower = module.name.lower()
-            
             for cls in module.classes:
                 is_entity = False
                 table_name = cls.name
                 orm_type = "JPA"
                 
                 cls_docstring = cls.docstring or ""
+                class_name = cls.name
                 
-                if "JPA Entity" in cls_docstring or "MyBatis Plus Entity" in cls_docstring:
-                    is_entity = True
-                    
-                    if "MyBatis Plus Entity" in cls_docstring:
-                        orm_type = "MyBatis Plus"
-                    
-                    table_match = re.search(r'Table:\s*([^\s|]+)', cls_docstring)
-                    if table_match:
-                        table_name = table_match.group(1)
+                for pattern in non_entity_patterns:
+                    if class_name.endswith(pattern) or class_name == pattern:
+                        is_entity = False
+                        break
+                else:
+                    if "JPA Entity" in cls_docstring or "MyBatis Plus Entity" in cls.docstring:
+                        is_entity = True
+                        
+                        if "MyBatis Plus Entity" in cls_docstring:
+                            orm_type = "MyBatis Plus"
+                        
+                        table_match = re.search(r'Table:\s*([^\s|]+)', cls_docstring)
+                        if table_match:
+                            table_name = table_match.group(1)
                 
-                if hasattr(cls, 'decorators') and cls.decorators:
-                    for decorator in cls.decorators:
-                        decorator_lower = decorator.lower()
-                        if "@entity" in decorator_lower or "@table" in decorator_lower:
+                decorators = getattr(cls, 'decorators', [])
+                if decorators:
+                    for decorator in decorators:
+                        if not decorator:
+                            continue
+                        decorator_str = str(decorator)
+                        decorator_lower = decorator_str.lower()
+                        
+                        if "@entity" in decorator_lower and "table" in decorator_lower:
                             is_entity = True
-                            name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', decorator)
+                            name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', decorator_str)
                             if name_match:
                                 table_name = name_match.group(1)
+                        
                         if "@tablename" in decorator_lower:
                             is_entity = True
                             orm_type = "MyBatis Plus"
-                            name_match = re.search(r'(?:value|name)\s*=\s*["\']([^"\']+)["\']', decorator)
+                            name_match = re.search(r'(?:value|name)\s*=\s*["\']([^"\']+)["\']', decorator_str)
                             if name_match:
                                 table_name = name_match.group(1)
                 
-                for base in cls.bases:
-                    if any(entity_base in base for entity_base in ["Entity", "BaseEntity", "AbstractEntity"]):
+                bases = getattr(cls, 'bases', [])
+                for base in bases:
+                    if any(entity_base in base for entity_base in ["Entity", "BaseEntity", "AbstractEntity", "Persistable"]):
                         is_entity = True
                 
-                if any(kw in module_lower for kw in entity_keywords) and not is_entity:
-                    is_entity = True
+                if not is_entity:
+                    continue
                 
-                if is_entity:
-                    table = {
-                        "name": table_name,
-                        "class_name": cls.name,
-                        "description": self._clean_java_docstring(cls_docstring),
-                        "columns": [],
-                        "indexes": [],
-                        "primary_key": "",
-                        "foreign_keys": [],
-                        "orm_type": orm_type,
-                    }
+                if not self._is_valid_table_name(table_name):
+                    continue
+                    
+                if table_name == cls.name and not self._is_valid_table_name(class_name):
+                    continue
+                    
+                table = {
+                    "name": table_name,
+                    "class_name": cls.name,
+                    "description": self._clean_java_docstring(cls_docstring),
+                    "columns": [],
+                    "indexes": [],
+                    "primary_key": "",
+                    "foreign_keys": [],
+                    "orm_type": orm_type,
+                }
 
-                    for prop in cls.class_variables:
-                        column = self._extract_java_column_from_property(prop, cls_docstring)
-                        if column:
-                            if column.get("is_primary"):
-                                table["primary_key"] = column["name"]
-                            if column.get("is_foreign"):
-                                table["foreign_keys"].append(column["name"])
-                            table["columns"].append(column)
+                class_variables = getattr(cls, 'class_variables', [])
+                for prop in class_variables:
+                    column = self._extract_java_column_from_property(prop, cls_docstring)
+                    if column:
+                        if column.get("is_primary"):
+                            table["primary_key"] = column["name"]
+                        if column.get("is_foreign"):
+                            table["foreign_keys"].append(column["name"])
+                        table["columns"].append(column)
 
-                    for method in cls.methods:
-                        if method.name.startswith("get") and len(method.name) > 3:
-                            prop_name = method.name[3].lower() + method.name[4:]
-                            if not any(c["name"] == prop_name for c in table["columns"]):
-                                if method.return_type:
-                                    column = {
-                                        "name": prop_name,
-                                        "type": self._map_java_type(method.return_type),
-                                        "constraints": "",
-                                        "description": "",
-                                        "is_primary": False,
-                                        "is_foreign": False,
-                                        "is_nullable": True,
-                                    }
-                                    table["columns"].append(column)
+                methods = getattr(cls, 'methods', [])
+                for method in methods:
+                    if method.name.startswith("get") and len(method.name) > 3:
+                        prop_name = method.name[3].lower() + method.name[4:]
+                        if not any(c["name"] == prop_name for c in table["columns"]):
+                            if method.return_type:
+                                column = {
+                                    "name": prop_name,
+                                    "type": self._map_java_type(method.return_type),
+                                    "constraints": "",
+                                    "description": "",
+                                    "is_primary": False,
+                                    "is_foreign": False,
+                                    "is_nullable": True,
+                                }
+                                table["columns"].append(column)
 
-                    if table["columns"]:
-                        tables.append(table)
+                if table["columns"]:
+                    tables.append(table)
 
         return tables[:30]
 
@@ -958,14 +1051,24 @@ class DatabaseGenerator(BaseDocGenerator):
         seen_tables = set()
 
         for sql_file in context.project_path.rglob("*.sql"):
-            if "node_modules" in str(sql_file) or "venv" in str(sql_file):
+            path_str = str(sql_file)
+            if "node_modules" in path_str or "venv" in path_str or "target" in path_str:
+                continue
+            
+            if not self._is_sql_file(sql_file):
                 continue
                 
             try:
                 content = sql_file.read_text(encoding="utf-8")
+                
+                if not self._looks_like_sql_content(content):
+                    continue
+                
                 extracted_tables = self._parse_sql_create_tables(content)
                 
                 for table in extracted_tables:
+                    if not self._is_valid_table_name(table["name"]):
+                        continue
                     if table["name"].lower() not in seen_tables:
                         seen_tables.add(table["name"].lower())
                         tables.append(table)
@@ -973,6 +1076,71 @@ class DatabaseGenerator(BaseDocGenerator):
                 continue
 
         return tables
+
+    def _is_sql_file(self, file_path: Path) -> bool:
+        """检查文件是否为真正的 SQL 文件"""
+        if not file_path.exists():
+            return False
+        
+        if file_path.stat().st_size == 0:
+            return False
+        
+        if file_path.stat().st_size > 10 * 1024 * 1024:
+            return False
+        
+        sql_indicators = ['sql', 'ddl', 'dml', 'database', 'table', 'schema']
+        path_lower = str(file_path).lower()
+        
+        if any(indicator in path_lower for indicator in sql_indicators):
+            return True
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                first_chunk = f.read(500).lower()
+                sql_keywords = ['create table', 'alter table', 'drop table', 'insert into', 'select from']
+                if any(keyword in first_chunk for keyword in sql_keywords):
+                    return True
+        except Exception:
+            pass
+        
+        return False
+
+    def _looks_like_sql_content(self, content: str) -> bool:
+        """检查内容是否像 SQL"""
+        if not content:
+            return False
+        
+        content_lower = content.lower()
+        
+        required_keywords = ['create table']
+        keyword_count = sum(1 for kw in required_keywords if kw in content_lower)
+        
+        if keyword_count == 0:
+            return False
+        
+        non_sql_patterns = [
+            r'public\s+class',
+            r'public\s+interface',
+            r'package\s+com\.',
+            r'import\s+java\.',
+            r'import\s+org\.springframework',
+            r'@RestController',
+            r'@Controller',
+            r'@Service',
+            r'@Component',
+            r'private\s+\w+\s+\w+;',
+            r'public\s+\w+\s+\w+\(',
+        ]
+        
+        non_sql_count = 0
+        for pattern in non_sql_patterns:
+            if re.search(pattern, content):
+                non_sql_count += 1
+        
+        if non_sql_count > 3:
+            return False
+        
+        return True
 
     def _parse_sql_create_tables(self, content: str) -> list[dict[str, Any]]:
         """解析 SQL 内容中的 CREATE TABLE 语句"""

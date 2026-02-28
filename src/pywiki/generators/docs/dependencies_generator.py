@@ -120,6 +120,15 @@ class DependenciesGenerator(BaseDocGenerator):
                     
                     base_module = imp.module.split(".")[0]
                     
+                    if project_language == "java":
+                        parts = imp.module.split(".")
+                        if len(parts) >= 3 and parts[0] in ("org", "com", "io", "net", "cn", "javax", "jakarta"):
+                            base_module = ".".join(parts[:3])
+                        elif len(parts) >= 2:
+                            base_module = ".".join(parts[:2])
+                        else:
+                            base_module = imp.module
+                    
                     if base_module.lower().startswith(project_prefix):
                         internal_deps.append({
                             "source": module.name,
@@ -155,7 +164,7 @@ class DependenciesGenerator(BaseDocGenerator):
                         import_usage[base_module].append(module.name)
 
         dep_data["external"] = sorted(
-            list(external_deps.values()),
+            [d for d in external_deps.values() if self._is_valid_module_name(d["name"])],
             key=lambda x: x["usage_count"],
             reverse=True
         )
@@ -178,17 +187,17 @@ class DependenciesGenerator(BaseDocGenerator):
                 for cycle in graph.circular_dependencies[:10]
             ]
             
-            dep_data["hot_spots"] = [
-                {
+            dep_data["hot_spots"] = []
+            for module in graph.hot_spots:
+                if not self._is_valid_module_name(module):
+                    continue
+                dep_data["hot_spots"].append({
                     "module": module,
                     "incoming": sum(1 for e in graph.edges if e.target == module),
                     "outgoing": sum(1 for e in graph.edges if e.source == module),
                     "total": sum(1 for e in graph.edges if e.target == module) + sum(1 for e in graph.edges if e.source == module),
                     "risk": "high" if sum(1 for e in graph.edges if e.target == module) > 5 else "medium",
-                    "description": f"被 {sum(1 for e in graph.edges if e.target == module)} 个模块依赖",
-                }
-                for module in graph.hot_spots
-            ]
+                })
             
             report = self.dependency_analyzer.generate_dependency_report(graph)
             dep_data["recommendations"] = report.get("recommendations", [])
@@ -548,6 +557,29 @@ class DependenciesGenerator(BaseDocGenerator):
             "medium": strength["medium"][:15],
             "weak_count": len(strength["weak"]),
         }
+
+    def _is_valid_module_name(self, name: str) -> bool:
+        """验证模块名是否有效"""
+        if not name or len(name) < 2:
+            return False
+        
+        invalid_patterns = [
+            '@', '(', ')', '{', '}', '<', '>', ';', '=', '\n', '\t',
+            'Schema(', 'hema(desc', 'implements', 'extends', 'class ',
+            'import ', 'package ', 'public ', 'private ', 'protected ',
+        ]
+        
+        for pattern in invalid_patterns:
+            if pattern in name:
+                return False
+        
+        if name.startswith('.') or name.endswith('.'):
+            return False
+        
+        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', name):
+            return True
+        
+        return False
 
     def _categorize_dependency(self, name: str) -> str:
         """分类依赖"""
