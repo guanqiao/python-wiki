@@ -45,10 +45,20 @@ class TestDocGeneratorContext:
         )
 
         path = context.get_output_path(DocType.OVERVIEW)
-        assert path.name == "overview.md"
+        assert path.name == "README.md"
+        assert "01-Overview" in str(path)
 
         path = context.get_output_path(DocType.TECH_STACK)
         assert path.name == "tech-stack.md"
+        assert "01-Overview" in str(path)
+        
+        path = context.get_output_path(DocType.API)
+        assert path.name == "index.md"
+        assert "05-API" in str(path)
+        
+        path = context.get_output_path(DocType.ARCHITECTURE)
+        assert path.name == "system-architecture.md"
+        assert "02-Architecture" in str(path)
 
 
 class TestOverviewGenerator:
