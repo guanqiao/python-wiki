@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from pywiki.config.models import ProjectConfig, WikiConfig, Language
-from pywiki.parsers.python import PythonParser
+from pywiki.parsers.factory import ParserFactory
 from pywiki.parsers.types import ModuleInfo, ParseResult
 from pywiki.llm.client import LLMClient
 from pywiki.generators.markdown import MarkdownGenerator
@@ -57,10 +57,11 @@ class WikiManager:
 
         logger.info(f"WikiManager 初始化: 项目={project.name}, 路径={project.path}")
 
-        self.parser = PythonParser(
+        self.parser_factory = ParserFactory(
             exclude_patterns=self.wiki_config.exclude_patterns,
             include_private=self.wiki_config.include_private,
         )
+        self._project_language: Optional[str] = None
 
         self.storage = WikiStorage(
             output_dir=project.path / self.wiki_config.output_dir,
@@ -117,9 +118,11 @@ class WikiManager:
                 self._progress.processed_files = i + 1
                 self._notify_progress()
 
-                result = self.parser.parse_file(file_path)
-                await self._generate_module_docs(result.modules)
-                logger.debug(f"增量更新文件: {file_path}")
+                parser = self.parser_factory.get_parser(file_path)
+                if parser:
+                    result = parser.parse_file(file_path)
+                    await self._generate_module_docs(result.modules)
+                    logger.debug(f"增量更新文件: {file_path}")
 
             self._progress.status = GenerationStatus.COMPLETED
             self._notify_progress()
@@ -139,11 +142,41 @@ class WikiManager:
         self._notify_progress()
 
         project_path = self.project.path
-        python_files = list(project_path.rglob("*.py"))
+        self._project_language = self._detect_project_language()
+        
+        exclude_patterns = {".venv", "__pycache__", "site-packages", "node_modules", ".git", "dist", "build"}
+        
+        all_files = []
+        for ext in self.parser_factory.get_supported_extensions():
+            for f in project_path.rglob(f"*{ext}"):
+                if not any(pattern in str(f) for pattern in exclude_patterns):
+                    all_files.append(f)
 
-        self._progress.total_files = len(python_files)
+        self._progress.total_files = len(all_files)
         self._notify_progress()
-        logger.debug(f"项目扫描完成: 发现 {len(python_files)} 个 Python 文件")
+        logger.debug(f"项目扫描完成: 发现 {len(all_files)} 个文件, 项目语言={self._project_language}")
+
+    def _detect_project_language(self) -> str:
+        """检测项目主要语言（带缓存）"""
+        if self._project_language:
+            return self._project_language
+            
+        project_path = self.project.path
+        
+        python_count = sum(1 for _ in project_path.rglob("*.py") 
+                          if ".venv" not in str(_) and "__pycache__" not in str(_) and "site-packages" not in str(_))
+        java_count = sum(1 for _ in project_path.rglob("*.java"))
+        ts_count = sum(1 for _ in project_path.rglob("*.ts")) + sum(1 for _ in project_path.rglob("*.tsx"))
+        
+        if java_count > 0 and java_count >= python_count:
+            result = "java"
+        elif ts_count > 0 and ts_count >= python_count:
+            result = "typescript"
+        else:
+            result = "python"
+        
+        self._project_language = result
+        return result
 
     async def _parse_code(self) -> None:
         """解析代码"""
@@ -151,11 +184,29 @@ class WikiManager:
         self._progress.current_stage = "结构分析"
         self._notify_progress()
 
-        self._parse_result = self.parser.parse_directory(self.project.path)
+        self._parse_result = self._parse_with_factory()
 
         self._progress.total_files = len(self._parse_result.modules)
         self._notify_progress()
         logger.debug(f"代码解析完成: 发现 {len(self._parse_result.modules)} 个模块")
+
+    def _parse_with_factory(self) -> ParseResult:
+        """使用工厂模式解析项目代码"""
+        result = ParseResult()
+        project_path = self.project.path
+        
+        for ext in self.parser_factory.get_supported_extensions():
+            parser = self.parser_factory.get_parser(Path(f"dummy{ext}"))
+            if parser:
+                for file_path in project_path.rglob(f"*{ext}"):
+                    if self.parser_factory.is_supported(file_path):
+                        file_result = parser.parse_file(file_path)
+                        result.modules.extend(file_result.modules)
+                        result.dependencies.extend(file_result.dependencies)
+                        result.errors.extend(file_result.errors)
+                        result.warnings.extend(file_result.warnings)
+        
+        return result
 
     async def _generate_documents(self) -> None:
         """生成文档"""
@@ -308,7 +359,7 @@ class WikiManager:
             language = self.wiki_config.language
 
         if self._parse_result is None:
-            self._parse_result = self.parser.parse_directory(self.project.path)
+            self._parse_result = self._parse_with_factory()
 
         agent = DocumentationAgent()
         if self.llm_client:
@@ -335,6 +386,7 @@ class WikiManager:
                 "language": language,
                 "llm_client": self.llm_client,
                 "parse_result": self._parse_result,
+                "project_language": self._project_language,
             },
         )
 
@@ -369,7 +421,7 @@ class WikiManager:
             language = self.wiki_config.language
 
         if self._parse_result is None:
-            self._parse_result = self.parser.parse_directory(self.project.path)
+            self._parse_result = self._parse_with_factory()
 
         agent = DocumentationAgent()
         if self.llm_client:
@@ -383,6 +435,7 @@ class WikiManager:
                 "language": language,
                 "llm_client": self.llm_client,
                 "parse_result": self._parse_result,
+                "project_language": self._project_language,
             },
         )
 

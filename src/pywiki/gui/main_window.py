@@ -256,31 +256,92 @@ class GitSyncThread(QThread):
 class ProjectAnalyzeThread(QThread):
     """项目分析线程"""
     
-    analysis_completed = pyqtSignal(bool, dict, list)
+    analysis_completed = pyqtSignal(bool, dict, list, list, list)
     
     def __init__(self, project_path: Path):
         super().__init__()
         self.project_path = project_path
     
     def run(self):
+        tech_stack = {}
+        patterns = []
+        evolution = []
+        business_logic = []
+        
         try:
             from pywiki.insights.tech_stack_analyzer import TechStackAnalyzer
+            from pywiki.insights.pattern_detector import DesignPatternDetector
+            from pywiki.insights.business_logic import BusinessLogicAnalyzer
+            from pywiki.insights.architecture_evolution import ArchitectureEvolutionTracker
+            from pywiki.parsers.python import PythonParser
             
             analyzer = TechStackAnalyzer()
             analysis = analyzer.analyze_project(self.project_path)
             
-            tech_stack = {}
             for component in analysis.components:
                 category = component.category.value
                 if category not in tech_stack:
                     tech_stack[category] = []
                 tech_stack[category].append(component.name)
             
-            self.analysis_completed.emit(True, tech_stack, [])
+            parser = PythonParser()
+            detector = DesignPatternDetector()
+            business_analyzer = BusinessLogicAnalyzer()
+            
+            for py_file in self.project_path.rglob("*.py"):
+                try:
+                    if ".venv" in str(py_file) or "__pycache__" in str(py_file):
+                        continue
+                    
+                    result = parser.parse_file(py_file)
+                    for module in result.modules:
+                        detected = detector.detect_from_module(module)
+                        for p in detected:
+                            patterns.append({
+                                "name": p.pattern_name,
+                                "location": p.location,
+                                "confidence": p.confidence,
+                                "category": p.category.value,
+                                "description": p.description,
+                            })
+                        
+                        biz_result = business_analyzer.analyze_module(module)
+                        for entity in biz_result.get("entities", []):
+                            business_logic.append({
+                                "name": entity.name,
+                                "description": entity.description,
+                                "type": "entity",
+                                "domain": entity.domain.value if entity.domain else "",
+                            })
+                        for rule in biz_result.get("rules", []):
+                            business_logic.append({
+                                "name": rule.name,
+                                "description": rule.description,
+                                "type": "rule",
+                                "domain": rule.domain.value if rule.domain else "",
+                            })
+                        
+                except Exception as e:
+                    logger.debug(f"解析文件失败 {py_file}: {e}")
+                    continue
+            
+            try:
+                evolution_tracker = ArchitectureEvolutionTracker(self.project_path)
+                report = evolution_tracker.generate_evolution_report()
+                for change in report.get("recent_changes", []):
+                    evolution.append({
+                        "time": change.get("timestamp", ""),
+                        "change": change.get("description", ""),
+                        "impact": change.get("impact", ""),
+                    })
+            except Exception as e:
+                logger.debug(f"架构演进分析失败: {e}")
+            
+            self.analysis_completed.emit(True, tech_stack, patterns, evolution, business_logic)
             
         except Exception as e:
-            logger.error(f"项目分析失败: {e}")
-            self.analysis_completed.emit(False, {}, [])
+            logger.error(f"项目分析失败: {e}", exc_info=True)
+            self.analysis_completed.emit(False, {}, [], [], [])
 
 
 class KnowledgeExtractThread(QThread):
@@ -450,7 +511,7 @@ class MainWindow(QMainWindow):
         self.progress_panel = ProgressPanel()
         right_splitter.addWidget(self.progress_panel)
 
-        right_splitter.setSizes([650, 200])
+        right_splitter.setSizes([550, 350])
 
         splitter.addWidget(right_splitter)
         splitter.setSizes([320, 1180])
@@ -542,6 +603,11 @@ class MainWindow(QMainWindow):
         sync_action.triggered.connect(self._on_sync)
         toolbar.addAction(sync_action)
 
+        clear_wiki_action = QAction("🗑️ 清空Wiki", self)
+        clear_wiki_action.setToolTip("清空所选项目生成的Wiki文档")
+        clear_wiki_action.triggered.connect(self._on_clear_wiki)
+        toolbar.addAction(clear_wiki_action)
+
         toolbar.addSeparator()
 
         config_action = QAction("⚙️ LLM 配置", self)
@@ -592,6 +658,11 @@ class MainWindow(QMainWindow):
         self.project_panel.set_projects(config.projects, config.default_llm)
 
     def _set_current_project(self, project: ProjectConfig) -> None:
+        # 优化：如果已经是当前项目，则跳过
+        if self._current_project and self._current_project.name == project.name:
+            logger.debug(f"项目 {project.name} 已是当前项目，跳过切换")
+            return
+        
         self._current_project = project
         self.settings.set_last_project(project.name)
         self.project_changed.emit(project.name)
@@ -925,6 +996,57 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage(f"Git 同步失败: {message}")
             QMessageBox.warning(self, "失败", f"Git 同步失败: {message}")
 
+    def _on_clear_wiki(self) -> None:
+        if not self._current_project:
+            QMessageBox.warning(self, "警告", "请先选择一个项目")
+            return
+
+        wiki_dir = self._current_project.path / self._current_project.wiki.output_dir
+        
+        reply = QMessageBox.question(
+            self,
+            "确认清空",
+            f"确定要清空项目 '{self._current_project.name}' 生成的Wiki文档吗？\n\n"
+            f"将清空目录: {wiki_dir}\n"
+            f"（包括所有语言的文档）\n\n"
+            "此操作不可撤销！",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        logger.info(f"开始清空Wiki: {self._current_project.name}")
+        self.statusbar.showMessage("正在清空Wiki...")
+        
+        try:
+            from pywiki.wiki.storage import WikiStorage
+            
+            storage = WikiStorage(output_dir=wiki_dir)
+            
+            result = storage.clear_all()
+            
+            total_deleted = result["deleted_files"] + result["deleted_dirs"]
+            self.progress_panel.add_log("SUCCESS", f"Wiki已清空: 删除 {result['deleted_files']} 个文件, {result['deleted_dirs']} 个目录")
+            self.statusbar.showMessage(f"Wiki已清空: 删除 {total_deleted} 项")
+            
+            self.preview_panel.set_wiki_dir(wiki_dir)
+            
+            QMessageBox.information(
+                self,
+                "清空完成",
+                f"Wiki文档已清空！\n\n"
+                f"删除文件: {result['deleted_files']} 个\n"
+                f"删除目录: {result['deleted_dirs']} 个"
+            )
+            logger.info(f"Wiki清空完成: {self._current_project.name}, 删除 {total_deleted} 项")
+            
+        except Exception as e:
+            logger.log_exception(f"清空Wiki失败: {self._current_project.name}", e)
+            self.progress_panel.add_log("ERROR", f"清空Wiki失败: {e}")
+            self.statusbar.showMessage(f"清空Wiki失败: {e}")
+            QMessageBox.critical(self, "错误", f"清空Wiki失败: {e}")
+
     def _on_analyze(self) -> None:
         if not self._current_project:
             QMessageBox.warning(self, "警告", "请先选择一个项目")
@@ -938,7 +1060,7 @@ class MainWindow(QMainWindow):
         self._analyze_thread.analysis_completed.connect(self._on_analyze_completed)
         self._analyze_thread.start()
 
-    def _on_analyze_completed(self, success: bool, tech_stack: dict, patterns: list) -> None:
+    def _on_analyze_completed(self, success: bool, tech_stack: dict, patterns: list, evolution: list, business_logic: list) -> None:
         if success:
             self.progress_panel.add_log("SUCCESS", "项目架构分析完成")
             self.statusbar.showMessage("架构分析完成")
@@ -946,6 +1068,10 @@ class MainWindow(QMainWindow):
             self.insights_panel.update_tech_stack(tech_stack)
             if patterns:
                 self.insights_panel.update_patterns(patterns)
+            if evolution:
+                self.insights_panel.update_evolution(evolution)
+            if business_logic:
+                self.insights_panel.update_business_logic(business_logic)
         else:
             self.progress_panel.add_log("ERROR", "项目架构分析失败")
             self.statusbar.showMessage("架构分析失败")
