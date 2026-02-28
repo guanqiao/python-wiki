@@ -64,6 +64,46 @@
 {{ data_flow_diagram }}
 {% endif %}
 
+{% if flowchart %}
+## 业务流程图
+
+展示核心业务场景的处理流程（由 LLM 智能抽象生成）。
+
+{{ flowchart }}
+{% endif %}
+
+{% if sequence_diagram %}
+## 交互序列图
+
+展示系统组件间的典型交互场景（由 LLM 智能抽象生成）。
+
+{{ sequence_diagram }}
+{% endif %}
+
+{% if class_diagram %}
+## 领域模型类图
+
+展示核心业务实体及其关系（由 LLM 智能抽象生成）。
+
+{{ class_diagram }}
+{% endif %}
+
+{% if state_diagram %}
+## 状态转移图
+
+展示业务实体的生命周期和状态转换（由 LLM 智能抽象生成）。
+
+{{ state_diagram }}
+{% endif %}
+
+{% if component_diagram %}
+## 组件架构图
+
+展示系统组件架构及依赖关系（由 LLM 智能抽象生成）。
+
+{{ component_diagram }}
+{% endif %}
+
 {% if layers %}
 ## 分层架构
 
