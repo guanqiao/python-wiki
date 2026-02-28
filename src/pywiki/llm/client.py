@@ -74,6 +74,7 @@ class LLMClient(BaseLLMClient):
             max_tokens=self.max_tokens,
             timeout=self.timeout,
             max_retries=self.max_retries,
+            http_async_client=self._http_client,
         )
         logger.debug("LLM 客户端设置完成")
 
