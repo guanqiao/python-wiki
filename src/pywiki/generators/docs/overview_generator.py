@@ -734,44 +734,62 @@ class OverviewGenerator(BaseDocGenerator):
         
         code_stats = project_info.get("code_stats", {})
         
+        system_prompt = self._get_system_prompt()
+        
         if self.language == Language.ZH:
-            prompt = f"""请分析以下项目信息，生成更详细的项目概述：
+            prompt = f"""# 任务
+分析项目信息，生成专业的项目概述文档。
 
-项目名称: {context.project_name}
-模块数量: {code_stats.get('total_modules', 0)}
-类数量: {code_stats.get('total_classes', 0)}
-函数数量: {code_stats.get('total_functions', 0)}
-异步函数: {code_stats.get('async_functions', 0) + code_stats.get('async_methods', 0)}
-技术栈: {json.dumps(project_info.get('tech_stack', {}), ensure_ascii=False)}
-功能特性: {json.dumps(project_info.get('features', []), ensure_ascii=False)}
+# 项目数据
+- **项目名称**: {context.project_name}
+- **模块数量**: {code_stats.get('total_modules', 0)}
+- **类数量**: {code_stats.get('total_classes', 0)}
+- **函数数量**: {code_stats.get('total_functions', 0)}
+- **异步函数**: {code_stats.get('async_functions', 0) + code_stats.get('async_methods', 0)}
+- **技术栈**: {json.dumps(project_info.get('tech_stack', {}), ensure_ascii=False)}
+- **功能特性**: {json.dumps(project_info.get('features', []), ensure_ascii=False)}
 
-请以 JSON 格式返回：
+# 输出要求
+请以 JSON 格式返回以下字段：
 {{
-    "enhanced_description": "更详细的项目描述",
-    "key_features": ["核心功能1", "核心功能2"],
-    "target_users": "目标用户群体",
-    "use_cases": ["使用场景1", "使用场景2"]
+    "enhanced_description": "项目描述（100-200字，包含项目定位、核心价值、技术特点）",
+    "key_features": ["核心功能1（简洁描述）", "核心功能2", "核心功能3"],
+    "target_users": "目标用户群体描述",
+    "use_cases": ["典型使用场景1", "典型使用场景2"]
 }}
+
+# 质量标准
+- 描述需准确反映项目特点，避免泛泛而谈
+- 核心功能提取最具代表性的3-5项
+- 使用场景需具体可理解
 
 请务必使用中文回答。"""
         else:
-            prompt = f"""Please analyze the following project information and generate a detailed project overview:
+            prompt = f"""# Task
+Analyze project information and generate a professional project overview document.
 
-Project Name: {context.project_name}
-Number of Modules: {code_stats.get('total_modules', 0)}
-Number of Classes: {code_stats.get('total_classes', 0)}
-Number of Functions: {code_stats.get('total_functions', 0)}
-Async Functions: {code_stats.get('async_functions', 0) + code_stats.get('async_methods', 0)}
-Tech Stack: {json.dumps(project_info.get('tech_stack', {}), ensure_ascii=False)}
-Features: {json.dumps(project_info.get('features', []), ensure_ascii=False)}
+# Project Data
+- **Project Name**: {context.project_name}
+- **Module Count**: {code_stats.get('total_modules', 0)}
+- **Class Count**: {code_stats.get('total_classes', 0)}
+- **Function Count**: {code_stats.get('total_functions', 0)}
+- **Async Functions**: {code_stats.get('async_functions', 0) + code_stats.get('async_methods', 0)}
+- **Tech Stack**: {json.dumps(project_info.get('tech_stack', {}), ensure_ascii=False)}
+- **Features**: {json.dumps(project_info.get('features', []), ensure_ascii=False)}
 
-Please return in JSON format:
+# Output Requirements
+Please return the following fields in JSON format:
 {{
-    "enhanced_description": "More detailed project description",
-    "key_features": ["core feature 1", "core feature 2"],
-    "target_users": "Target user group",
-    "use_cases": ["use case 1", "use case 2"]
+    "enhanced_description": "Project description (100-200 words, including positioning, core value, technical characteristics)",
+    "key_features": ["core feature 1 (concise description)", "core feature 2", "core feature 3"],
+    "target_users": "Target user group description",
+    "use_cases": ["typical use case 1", "typical use case 2"]
 }}
+
+# Quality Standards
+- Description should accurately reflect project characteristics, avoid generalizations
+- Extract 3-5 most representative core features
+- Use cases should be specific and understandable
 
 Please respond in English."""
 
@@ -779,7 +797,7 @@ Please respond in English."""
         prompt_length = len(prompt)
         logger.info(f"Overview LLM 增强开始: project={context.project_name}, prompt_length={prompt_length}")
         try:
-            response = await llm_client.agenerate(prompt)
+            response = await llm_client.agenerate(prompt, system_prompt=system_prompt)
             start = response.find("{")
             end = response.rfind("}")
             if start != -1 and end != -1:

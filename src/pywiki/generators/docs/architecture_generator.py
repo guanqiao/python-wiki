@@ -879,54 +879,74 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         
         quality_metrics = arch_data.get("quality_metrics", {})
         layers = arch_data.get("layers", [])
+        
+        system_prompt = self._get_system_prompt()
 
         if self.language == Language.ZH:
-            prompt = f"""基于以下架构分析，提供更深入的架构洞察：
+            prompt = f"""# 任务
+基于架构分析数据，提供深入的架构洞察和专业建议。
 
-项目: {context.project_name}
-分层: {[l['name'] for l in layers]}
-模块数: {quality_metrics.get('module_count', 0)}
-类数: {quality_metrics.get('class_count', 0)}
-耦合度: {quality_metrics.get('coupling', {}).get('level', 'unknown')}
-内聚性: {quality_metrics.get('cohesion', {}).get('level', 'unknown')}
-循环依赖: {len(arch_data.get('circular_dependencies', []))}
-热点模块: {len(arch_data.get('hot_spots', []))}
+# 架构数据
+- **项目名称**: {context.project_name}
+- **分层结构**: {[l['name'] for l in layers]}
+- **模块数量**: {quality_metrics.get('module_count', 0)}
+- **类数量**: {quality_metrics.get('class_count', 0)}
+- **耦合度**: {quality_metrics.get('coupling', {}).get('level', 'unknown')}
+- **内聚性**: {quality_metrics.get('cohesion', {}).get('level', 'unknown')}
+- **循环依赖**: {len(arch_data.get('circular_dependencies', []))}
+- **热点模块**: {len(arch_data.get('hot_spots', []))}
 
-请以 JSON 格式返回：
+# 输出要求
+请以 JSON 格式返回以下字段：
 {{
-    "architecture_style": "架构风格（如分层架构、微服务等）",
-    "strengths": ["优势1", "优势2"],
-    "weaknesses": ["劣势1", "劣势2"],
-    "improvement_suggestions": ["改进建议1", "改进建议2"],
-    "risk_assessment": "风险评估"
+    "architecture_style": "架构风格（如分层架构、微服务、事件驱动等，需说明判断依据）",
+    "strengths": ["架构优势1（具体说明）", "架构优势2"],
+    "weaknesses": ["架构劣势1（具体说明）", "架构劣势2"],
+    "improvement_suggestions": ["改进建议1（可执行）", "改进建议2"],
+    "risk_assessment": "风险评估（包含潜在风险和影响范围）"
 }}
+
+# 质量标准
+- 架构风格判断需基于分层、模块化等特征
+- 优劣势分析需结合具体指标数据
+- 改进建议需具体可执行，避免空泛表述
+- 风险评估需考虑可维护性、扩展性、性能等方面
 
 请务必使用中文回答。"""
         else:
-            prompt = f"""Based on the following architecture analysis, provide deeper architectural insights:
+            prompt = f"""# Task
+Based on architecture analysis data, provide in-depth architectural insights and professional recommendations.
 
-Project: {context.project_name}
-Layers: {[l['name'] for l in layers]}
-Modules: {quality_metrics.get('module_count', 0)}
-Classes: {quality_metrics.get('class_count', 0)}
-Coupling: {quality_metrics.get('coupling', {}).get('level', 'unknown')}
-Cohesion: {quality_metrics.get('cohesion', {}).get('level', 'unknown')}
-Circular Dependencies: {len(arch_data.get('circular_dependencies', []))}
-Hot Spots: {len(arch_data.get('hot_spots', []))}
+# Architecture Data
+- **Project Name**: {context.project_name}
+- **Layer Structure**: {[l['name'] for l in layers]}
+- **Module Count**: {quality_metrics.get('module_count', 0)}
+- **Class Count**: {quality_metrics.get('class_count', 0)}
+- **Coupling**: {quality_metrics.get('coupling', {}).get('level', 'unknown')}
+- **Cohesion**: {quality_metrics.get('cohesion', {}).get('level', 'unknown')}
+- **Circular Dependencies**: {len(arch_data.get('circular_dependencies', []))}
+- **Hot Spots**: {len(arch_data.get('hot_spots', []))}
 
-Please return in JSON format:
+# Output Requirements
+Please return the following fields in JSON format:
 {{
-    "architecture_style": "Architecture style (e.g., layered architecture, microservices)",
-    "strengths": ["strength1", "strength2"],
-    "weaknesses": ["weakness1", "weakness2"],
-    "improvement_suggestions": ["suggestion1", "suggestion2"],
-    "risk_assessment": "Risk assessment"
+    "architecture_style": "Architecture style (e.g., layered, microservices, event-driven, with reasoning)",
+    "strengths": ["strength 1 (specific explanation)", "strength 2"],
+    "weaknesses": ["weakness 1 (specific explanation)", "weakness 2"],
+    "improvement_suggestions": ["suggestion 1 (actionable)", "suggestion 2"],
+    "risk_assessment": "Risk assessment (including potential risks and impact scope)"
 }}
+
+# Quality Standards
+- Architecture style should be determined based on layering, modularization features
+- Strengths/weaknesses analysis should reference specific metric data
+- Improvement suggestions should be actionable, avoid vague statements
+- Risk assessment should consider maintainability, scalability, performance aspects
 
 Please respond in English."""
 
         try:
-            response = await llm_client.agenerate(prompt)
+            response = await llm_client.agenerate(prompt, system_prompt=system_prompt)
             start = response.find("{")
             end = response.rfind("}")
             if start != -1 and end != -1:

@@ -773,44 +773,64 @@ class ImplicitKnowledgeGenerator(BaseDocGenerator):
     ) -> dict[str, Any]:
         """使用 LLM 增强隐性知识文档"""
         enhanced = {}
+        
+        system_prompt = self._get_system_prompt()
 
         if self.language == Language.ZH:
-            prompt = f"""基于以下隐性知识分析，提供更深入的洞察：
+            prompt = f"""# 任务
+基于隐性知识分析数据，提供更深入的洞察和补充分析。
 
-项目: {context.project_name}
-设计模式: {[p['name'] for p in knowledge_data.get('design_patterns', [])]}
-技术债务: {len(knowledge_data.get('tech_debt', []))} 项
-编码规范: {len(knowledge_data.get('coding_conventions', []))} 项
+# 分析数据
+- **项目名称**: {context.project_name}
+- **已检测设计模式**: {[p['name'] for p in knowledge_data.get('design_patterns', [])]}
+- **技术债务数量**: {len(knowledge_data.get('tech_debt', []))} 项
+- **编码规范数量**: {len(knowledge_data.get('coding_conventions', []))} 项
 
-请以 JSON 格式返回：
+# 输出要求
+请以 JSON 格式返回以下字段：
 {{
-    "additional_patterns": ["可能存在但未检测到的模式"],
-    "architecture_insights": ["架构洞察1", "架构洞察2"],
-    "improvement_suggestions": ["改进建议1", "改进建议2"],
-    "knowledge_gaps": ["知识空白1", "知识空白2"]
+    "additional_patterns": ["可能存在但未检测到的模式（说明判断依据）"],
+    "architecture_insights": ["架构洞察1（基于代码特征的推断）", "架构洞察2"],
+    "improvement_suggestions": ["改进建议1（具体可执行）", "改进建议2"],
+    "knowledge_gaps": ["知识空白1（需要进一步分析的领域）", "知识空白2"]
 }}
+
+# 质量标准
+- 模式推测需基于已检测模式和项目特征
+- 架构洞察需有代码证据支持
+- 改进建议需具体可执行
+- 知识空白需指出分析盲区
 
 请务必使用中文回答。"""
         else:
-            prompt = f"""Based on the following implicit knowledge analysis, provide deeper insights:
+            prompt = f"""# Task
+Based on implicit knowledge analysis data, provide deeper insights and supplementary analysis.
 
-Project: {context.project_name}
-Design Patterns: {[p['name'] for p in knowledge_data.get('design_patterns', [])]}
-Technical Debt: {len(knowledge_data.get('tech_debt', []))} items
-Coding Conventions: {len(knowledge_data.get('coding_conventions', []))} items
+# Analysis Data
+- **Project Name**: {context.project_name}
+- **Detected Design Patterns**: {[p['name'] for p in knowledge_data.get('design_patterns', [])]}
+- **Technical Debt Count**: {len(knowledge_data.get('tech_debt', []))} items
+- **Coding Conventions Count**: {len(knowledge_data.get('coding_conventions', []))} items
 
-Please return in JSON format:
+# Output Requirements
+Please return the following fields in JSON format:
 {{
-    "additional_patterns": ["patterns that may exist but were not detected"],
-    "architecture_insights": ["insight1", "insight2"],
-    "improvement_suggestions": ["suggestion1", "suggestion2"],
-    "knowledge_gaps": ["gap1", "gap2"]
+    "additional_patterns": ["patterns that may exist but were not detected (with reasoning)"],
+    "architecture_insights": ["insight 1 (inference based on code characteristics)", "insight 2"],
+    "improvement_suggestions": ["suggestion 1 (actionable)", "suggestion 2"],
+    "knowledge_gaps": ["knowledge gap 1 (areas needing further analysis)", "knowledge gap 2"]
 }}
+
+# Quality Standards
+- Pattern speculation should be based on detected patterns and project characteristics
+- Architecture insights should be supported by code evidence
+- Improvement suggestions should be actionable
+- Knowledge gaps should point out analysis blind spots
 
 Please respond in English."""
 
         try:
-            response = await llm_client.agenerate(prompt)
+            response = await llm_client.agenerate(prompt, system_prompt=system_prompt)
             start = response.find("{")
             end = response.rfind("}")
             if start != -1 and end != -1:

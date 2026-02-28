@@ -637,43 +637,61 @@ class APIGenerator(BaseDocGenerator):
 
         endpoints = api_data.get("endpoints", [])
         if endpoints:
+            system_prompt = self._get_system_prompt()
+            
             if self.language == Language.ZH:
-                prompt = f"""为以下 API 端点生成更详细的文档：
+                prompt = f"""# 任务
+为 API 端点生成专业的文档说明。
 
-项目: {context.project_name}
-端点数量: {len(endpoints)}
-主要端点: {[e['path'] for e in endpoints[:5]]}
+# API 数据
+- **项目名称**: {context.project_name}
+- **端点数量**: {len(endpoints)}
+- **主要端点**: {[e['path'] for e in endpoints[:5]]}
 
-请以 JSON 格式返回：
+# 输出要求
+请以 JSON 格式返回以下字段：
 {{
-    "api_overview": "API 整体描述",
-    "authentication": "认证方式说明",
-    "rate_limiting": "限流说明",
-    "common_headers": {{"Header-Name": "说明"}},
-    "error_handling": "错误处理说明"
+    "api_overview": "API 整体描述（包含API定位、主要功能、设计理念）",
+    "authentication": "认证方式说明（如JWT、OAuth2、API Key等）",
+    "rate_limiting": "限流策略说明（如QPS限制、熔断机制等）",
+    "common_headers": {{"Header-Name": "请求头说明"}},
+    "error_handling": "错误处理机制说明（错误码、错误响应格式）"
 }}
+
+# 质量标准
+- 描述需基于端点特征推断，符合RESTful规范
+- 认证方式需根据端点路径和参数合理推测
+- 限流和错误处理需符合业界最佳实践
 
 请务必使用中文回答。"""
             else:
-                prompt = f"""Generate more detailed documentation for the following API endpoints:
+                prompt = f"""# Task
+Generate professional documentation for API endpoints.
 
-Project: {context.project_name}
-Endpoint Count: {len(endpoints)}
-Main Endpoints: {[e['path'] for e in endpoints[:5]]}
+# API Data
+- **Project Name**: {context.project_name}
+- **Endpoint Count**: {len(endpoints)}
+- **Main Endpoints**: {[e['path'] for e in endpoints[:5]]}
 
-Please return in JSON format:
+# Output Requirements
+Please return the following fields in JSON format:
 {{
-    "api_overview": "API overall description",
-    "authentication": "Authentication method description",
-    "rate_limiting": "Rate limiting description",
-    "common_headers": {{"Header-Name": "description"}},
-    "error_handling": "Error handling description"
+    "api_overview": "API overall description (including positioning, main functions, design philosophy)",
+    "authentication": "Authentication method description (e.g., JWT, OAuth2, API Key)",
+    "rate_limiting": "Rate limiting strategy description (e.g., QPS limits, circuit breaker)",
+    "common_headers": {{"Header-Name": "header description"}},
+    "error_handling": "Error handling mechanism description (error codes, error response format)"
 }}
+
+# Quality Standards
+- Description should be inferred from endpoint characteristics, following RESTful conventions
+- Authentication method should be reasonably inferred from endpoint paths and parameters
+- Rate limiting and error handling should follow industry best practices
 
 Please respond in English."""
 
             try:
-                response = await llm_client.agenerate(prompt)
+                response = await llm_client.agenerate(prompt, system_prompt=system_prompt)
                 start = response.find("{")
                 end = response.rfind("}")
                 if start != -1 and end != -1:
