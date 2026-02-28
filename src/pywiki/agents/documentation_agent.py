@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -81,17 +82,58 @@ class DocumentationAgent(BaseAgent):
         self._progress_callback: Optional[Callable[[DocGenerationProgress], None]] = None
         self._cache_enabled: bool = True
         self._max_concurrent: int = 5
+        self._language: Language = Language.ZH
         logger.debug("DocumentationAgent 初始化完成")
 
     def get_system_prompt(self) -> str:
-        return """你是一个专业的技术文档撰写专家。
-你的任务是：
-1. 分析项目代码结构
-2. 生成清晰、准确的技术文档
-3. 提取关键信息并组织成易读的格式
-4. 确保文档的完整性和准确性
+        if self._language == Language.ZH:
+            return """# 角色定义
+你是一位资深的技术文档撰写专家，精通多种编程语言和软件架构，擅长将复杂的代码逻辑转化为清晰易懂的文档。
 
-请生成高质量的技术文档。"""
+# 核心职责
+1. **代码分析**: 深入理解项目结构、模块关系、API设计
+2. **信息提取**: 识别关键功能、设计决策、技术亮点
+3. **文档撰写**: 生成结构清晰、内容准确的技术文档
+4. **质量把控**: 确保文档的完整性、准确性和可读性
+
+# 文档写作规范
+- **结构化**: 使用标题层级组织内容，逻辑清晰
+- **准确性**: 基于代码事实，避免模糊表述
+- **完整性**: 覆盖所有重要模块和接口
+- **可读性**: 使用简洁明了的语言，适当使用代码示例
+- **一致性**: 术语使用统一，格式风格一致
+
+# 输出格式要求
+- 使用标准 Markdown 格式
+- 代码块标注语言类型
+- 表格用于展示结构化数据
+- 列表用于枚举和步骤说明
+
+请务必使用中文回答。"""
+        else:
+            return """# Role Definition
+You are a senior technical documentation expert, proficient in multiple programming languages and software architectures, skilled at transforming complex code logic into clear and understandable documentation.
+
+# Core Responsibilities
+1. **Code Analysis**: Deep understanding of project structure, module relationships, API design
+2. **Information Extraction**: Identify key features, design decisions, technical highlights
+3. **Documentation Writing**: Generate well-structured, accurate technical documentation
+4. **Quality Control**: Ensure completeness, accuracy, and readability of documentation
+
+# Documentation Writing Standards
+- **Structured**: Use heading levels to organize content with clear logic
+- **Accurate**: Based on code facts, avoid vague statements
+- **Complete**: Cover all important modules and interfaces
+- **Readable**: Use concise language with appropriate code examples
+- **Consistent**: Unified terminology and formatting style
+
+# Output Format Requirements
+- Use standard Markdown format
+- Code blocks with language type annotation
+- Tables for structured data
+- Lists for enumeration and step-by-step instructions
+
+Please respond in English."""
 
     def register_progress_callback(self, callback: Callable[[DocGenerationProgress], None]) -> None:
         """注册进度回调"""
@@ -124,6 +166,7 @@ class DocumentationAgent(BaseAgent):
             doc_types = context.metadata.get("doc_types", list(DocType))
             output_dir = context.metadata.get("output_dir", Path(".python-wiki/repowiki"))
             language = context.metadata.get("language", Language.ZH)
+            self._language = language
             llm_client = context.metadata.get("llm_client") or self.llm_client
             incremental = context.metadata.get("incremental", False)
 
@@ -199,7 +242,8 @@ class DocumentationAgent(BaseAgent):
         incremental: bool = False,
     ) -> tuple[DocType, Optional[Path], Optional[str], bool]:
         """生成单个文档，返回 (doc_type, file_path, error, skipped)"""
-        logger.debug(f"开始生成文档: {doc_type.value}")
+        start_time = time.time()
+        logger.info(f"开始生成文档: {doc_type.value}")
         try:
             doc_context = DocGeneratorContext(
                 project_path=context.project_path or Path("."),
@@ -217,7 +261,8 @@ class DocumentationAgent(BaseAgent):
                 
                 if incremental and self._cache_enabled:
                     if not doc_context.needs_regeneration(doc_type, doc_result.content):
-                        logger.debug(f"文档未变更，跳过写入: {doc_type.value}")
+                        duration_ms = (time.time() - start_time) * 1000
+                        logger.info(f"文档未变更，跳过写入: {doc_type.value}, 耗时={duration_ms:.0f}ms")
                         return (doc_type, file_path, None, True)
                 
                 file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -227,14 +272,18 @@ class DocumentationAgent(BaseAgent):
                     content_hash = doc_context.compute_content_hash(doc_result.content)
                     doc_context.save_cached_hash(doc_type, content_hash)
                 
-                logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
+                duration_ms = (time.time() - start_time) * 1000
+                content_length = len(doc_result.content) if doc_result.content else 0
+                logger.info(f"文档生成成功: {doc_type.value} -> {file_path}, 耗时={duration_ms:.0f}ms, 内容长度={content_length}")
                 return (doc_type, file_path, None, False)
             else:
-                logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}")
+                duration_ms = (time.time() - start_time) * 1000
+                logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}, 耗时={duration_ms:.0f}ms")
                 return (doc_type, None, doc_result.message, False)
 
         except Exception as e:
-            logger.log_exception(f"文档生成异常: {doc_type.value}", e)
+            duration_ms = (time.time() - start_time) * 1000
+            logger.log_exception(f"文档生成异常: {doc_type.value}, 耗时={duration_ms:.0f}ms", e)
             return (doc_type, None, str(e), False)
 
     async def _generate_all_docs(
@@ -247,12 +296,13 @@ class DocumentationAgent(BaseAgent):
         incremental: bool = False,
     ) -> DocGenerationResult:
         """并发生成所有文档"""
+        start_time = time.time()
         result = DocGenerationResult(success=True)
         
         output_path = output_dir / language.value
         output_path.mkdir(parents=True, exist_ok=True)
 
-        logger.debug(f"文档输出路径: {output_path}")
+        logger.info(f"开始批量生成文档: 类型数={len(doc_types)}, 并发数={self._max_concurrent}, 输出路径={output_path}")
         generators = self._get_generators(language)
 
         semaphore = asyncio.Semaphore(self._max_concurrent)
@@ -296,9 +346,11 @@ class DocumentationAgent(BaseAgent):
             self._notify_progress()
 
         result.success = len(result.generated_files) > 0 or len(result.skipped_docs) > 0
+        duration_ms = (time.time() - start_time) * 1000
         logger.info(
-            f"文档生成汇总: 成功={len(result.generated_files)}, "
-            f"失败={len(result.failed_docs)}, 跳过={len(result.skipped_docs)}"
+            f"批量文档生成完成: 成功={len(result.generated_files)}, "
+            f"失败={len(result.failed_docs)}, 跳过={len(result.skipped_docs)}, "
+            f"总耗时={duration_ms:.0f}ms"
         )
         return result
 
@@ -328,7 +380,8 @@ class DocumentationAgent(BaseAgent):
         language: Language = Language.ZH,
     ) -> AgentResult:
         """生成单个文档"""
-        logger.info(f"生成单个文档: type={doc_type.value}, project={context.project_name}")
+        start_time = time.time()
+        logger.info(f"生成单个文档开始: type={doc_type.value}, project={context.project_name}")
         generators = self._get_generators(language)
         generator = generators.get(doc_type)
 
@@ -350,7 +403,6 @@ class DocumentationAgent(BaseAgent):
         )
 
         try:
-            logger.debug(f"开始生成文档: {doc_type.value}")
             doc_result = await generator.generate(doc_context)
 
             if doc_result.success:
@@ -362,7 +414,9 @@ class DocumentationAgent(BaseAgent):
                     content_hash = doc_context.compute_content_hash(doc_result.content)
                     doc_context.save_cached_hash(doc_type, content_hash)
                 
-                logger.info(f"文档生成成功: {doc_type.value} -> {file_path}")
+                duration_ms = (time.time() - start_time) * 1000
+                content_length = len(doc_result.content) if doc_result.content else 0
+                logger.info(f"单个文档生成成功: {doc_type.value} -> {file_path}, 耗时={duration_ms:.0f}ms, 内容长度={content_length}")
 
                 return AgentResult.success_result(
                     data={"file_path": str(file_path), "content": doc_result.content},
@@ -370,11 +424,13 @@ class DocumentationAgent(BaseAgent):
                     confidence=0.9,
                 )
             else:
-                logger.error(f"文档生成失败: {doc_type.value} - {doc_result.message}")
+                duration_ms = (time.time() - start_time) * 1000
+                logger.error(f"单个文档生成失败: {doc_type.value} - {doc_result.message}, 耗时={duration_ms:.0f}ms")
                 return AgentResult.error_result(doc_result.message)
 
         except Exception as e:
-            logger.log_exception(f"生成文档异常: {doc_type.value}", e)
+            duration_ms = (time.time() - start_time) * 1000
+            logger.log_exception(f"生成文档异常: {doc_type.value}, 耗时={duration_ms:.0f}ms", e)
             return AgentResult.error_result(f"生成失败: {str(e)}")
 
     def get_supported_doc_types(self) -> list[dict[str, str]]:
@@ -413,12 +469,15 @@ class DocumentationAgent(BaseAgent):
             changed_files: 变更的文件列表
             language: 文档语言
         """
-        logger.info(f"增量文档生成: 变更文件数={len(changed_files)}")
+        start_time = time.time()
+        logger.info(f"增量文档生成开始: 变更文件数={len(changed_files)}")
         
         affected_doc_types = self._analyze_affected_docs(changed_files)
+        logger.info(f"受影响的文档类型: {[d.value for d in affected_doc_types]}")
         
         if not affected_doc_types:
-            logger.info("没有需要更新的文档")
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"没有需要更新的文档, 耗时={duration_ms:.0f}ms")
             return AgentResult.success_result(
                 data={"updated_docs": []},
                 message="没有需要更新的文档",
@@ -428,7 +487,10 @@ class DocumentationAgent(BaseAgent):
         context.metadata["doc_types"] = affected_doc_types
         context.metadata["incremental"] = True
         
-        return await self.execute(context)
+        result = await self.execute(context)
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"增量文档生成完成: 耗时={duration_ms:.0f}ms")
+        return result
 
     def _analyze_affected_docs(self, changed_files: list[str]) -> list[DocType]:
         """分析受影响的文档类型"""
