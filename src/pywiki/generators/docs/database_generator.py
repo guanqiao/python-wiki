@@ -321,7 +321,6 @@ class DatabaseGenerator(BaseDocGenerator):
         non_entity_patterns = [
             'Controller', 'RestController', 'ControllerAdvice',
             'Service', 'ServiceImpl', 'Component',
-            'Repository', 'Dao', 'Mapper',
             'Configuration', 'Config', 'Bean',
             'Aspect', 'Interceptor', 'Filter',
             'Handler', 'Exception', 'Error',
@@ -331,9 +330,16 @@ class DatabaseGenerator(BaseDocGenerator):
             'HttpRequest', 'HttpResponse', 'Servlet',
             'Application', 'Runner', 'CommandLineRunner',
             'ExceptionHandler', 'ControllerAdvice',
+            'Test', 'Tests', 'TestCase',
+            'Constants', 'Enum', 'Type',
         ]
 
+        entity_suffixes = ['DO', 'Entity', 'PO', 'POJO', 'EO']
+
         for module in context.parse_result.modules:
+            module_lower = module.name.lower()
+            is_dal_module = any(kw in module_lower for kw in ['dal', 'dataobject', 'entity', 'domain', 'model', 'pojo'])
+            
             for cls in module.classes:
                 is_entity = False
                 table_name = cls.name
@@ -347,7 +353,7 @@ class DatabaseGenerator(BaseDocGenerator):
                         is_entity = False
                         break
                 else:
-                    if "JPA Entity" in cls_docstring or "MyBatis Plus Entity" in cls.docstring:
+                    if "JPA Entity" in cls_docstring or "MyBatis Plus Entity" in cls_docstring:
                         is_entity = True
                         
                         if "MyBatis Plus Entity" in cls_docstring:
@@ -356,6 +362,11 @@ class DatabaseGenerator(BaseDocGenerator):
                         table_match = re.search(r'Table:\s*([^\s|]+)', cls_docstring)
                         if table_match:
                             table_name = table_match.group(1)
+                    
+                    for suffix in entity_suffixes:
+                        if class_name.endswith(suffix) and len(class_name) > len(suffix) + 2:
+                            is_entity = True
+                            break
                 
                 decorators = getattr(cls, 'decorators', [])
                 if decorators:
@@ -365,7 +376,7 @@ class DatabaseGenerator(BaseDocGenerator):
                         decorator_str = str(decorator)
                         decorator_lower = decorator_str.lower()
                         
-                        if "@entity" in decorator_lower and "table" in decorator_lower:
+                        if "@entity" in decorator_lower:
                             is_entity = True
                             name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', decorator_str)
                             if name_match:
@@ -377,11 +388,18 @@ class DatabaseGenerator(BaseDocGenerator):
                             name_match = re.search(r'(?:value|name)\s*=\s*["\']([^"\']+)["\']', decorator_str)
                             if name_match:
                                 table_name = name_match.group(1)
+                        
+                        if "@tableid" in decorator_lower:
+                            is_entity = True
+                            orm_type = "MyBatis Plus"
                 
                 bases = getattr(cls, 'bases', [])
                 for base in bases:
-                    if any(entity_base in base for entity_base in ["Entity", "BaseEntity", "AbstractEntity", "Persistable"]):
+                    if any(entity_base in base for entity_base in ["Entity", "BaseEntity", "AbstractEntity", "Persistable", "BaseDO"]):
                         is_entity = True
+                
+                if is_dal_module and not any(class_name.endswith(p) for p in non_entity_patterns):
+                    is_entity = True
                 
                 if not is_entity:
                     continue
@@ -1431,49 +1449,93 @@ class DatabaseGenerator(BaseDocGenerator):
         """生成 E-R 图"""
         lines = ["erDiagram"]
 
+        # 如果没有表，返回空图表
+        if not tables:
+            lines.append("    %% No tables detected")
+            return "\n".join(lines)
+
         max_tables = 30
         max_columns = 12
 
+        # 清理表名，确保是有效的Mermaid标识符
+        def sanitize_table_name(name: str) -> str:
+            """清理表名，移除特殊字符"""
+            if not name:
+                return "unknown"
+            # 移除或替换特殊字符
+            sanitized = re.sub(r'[^\w]', '_', str(name))
+            # 确保不以数字开头
+            if sanitized and sanitized[0].isdigit():
+                sanitized = 't_' + sanitized
+            return sanitized or "unknown"
+
         for table in tables[:max_tables]:
-            table_name = table["name"]
-            lines.append(f"    {table_name} {{")
-            
+            table_name = table.get("name", "unknown")
+            if not table_name or not isinstance(table_name, str):
+                continue
+
+            safe_table_name = sanitize_table_name(table_name)
+            lines.append(f"    {safe_table_name} {{")
+
             columns = table.get("columns", [])
-            pk_columns = [c for c in columns if c.get("is_primary")]
-            fk_columns = [c for c in columns if c.get("is_foreign") and not c.get("is_primary")]
-            other_columns = [c for c in columns if not c.get("is_primary") and not c.get("is_foreign")]
-            
-            display_columns = pk_columns + fk_columns + other_columns
-            display_columns = display_columns[:max_columns]
-            
-            for col in display_columns:
-                col_type = col["type"]
-                col_type = col_type.split("[")[0]
-                col_type = col_type.split("(")[0] if "(" not in col_type else col_type[:col_type.find(")")+1] if col_type.find(")") != -1 else col_type.split("(")[0]
-                col_type = col_type[:20]
-                lines.append(f"        {col_type} {col['name']}")
+            if not columns:
+                lines.append("        %% No columns detected")
+            else:
+                pk_columns = [c for c in columns if c.get("is_primary")]
+                fk_columns = [c for c in columns if c.get("is_foreign") and not c.get("is_primary")]
+                other_columns = [c for c in columns if not c.get("is_primary") and not c.get("is_foreign")]
+
+                display_columns = pk_columns + fk_columns + other_columns
+                display_columns = display_columns[:max_columns]
+
+                for col in display_columns:
+                    if not isinstance(col, dict):
+                        continue
+                    col_name = col.get("name", "unknown")
+                    col_type = col.get("type", "unknown")
+                    if not isinstance(col_type, str):
+                        col_type = str(col_type)
+                    # 清理类型字符串
+                    col_type = col_type.split("[")[0]
+                    if "(" in col_type:
+                        paren_idx = col_type.find(")")
+                        if paren_idx != -1:
+                            col_type = col_type[:paren_idx+1]
+                        else:
+                            col_type = col_type.split("(")[0]
+                    col_type = col_type[:20]
+                    # 清理列名
+                    safe_col_name = re.sub(r'[^\w]', '_', str(col_name)) if col_name else "unknown"
+                    lines.append(f"        {col_type} {safe_col_name}")
             lines.append("    }")
 
+        # 添加关系
         max_relationships = 40
-        for rel in relationships[:max_relationships]:
-            primary_table = rel.get("primary_table", "")
-            foreign_table = rel.get("foreign_table", "")
-            foreign_key = rel.get("foreign_key", "")
-            relation_type = rel.get("relation_type", "1:N")
-            
-            if not primary_table or not foreign_table:
-                continue
-                
-            if relation_type == "1:1":
-                rel_symbol = "||--||"
-            elif relation_type == "N:M":
-                rel_symbol = "}o--o{"
-            elif relation_type == "N:1":
-                rel_symbol = "}o--||"
-            else:
-                rel_symbol = "||--o{"
-            
-            lines.append(f"    {primary_table} {rel_symbol} {foreign_table} : {foreign_key}")
+        if relationships:
+            for rel in relationships[:max_relationships]:
+                primary_table = rel.get("primary_table", "")
+                foreign_table = rel.get("foreign_table", "")
+                foreign_key = rel.get("foreign_key", "")
+                relation_type = rel.get("relation_type", "1:N")
+
+                if not primary_table or not foreign_table:
+                    continue
+
+                # 清理表名
+                safe_primary = sanitize_table_name(primary_table)
+                safe_foreign = sanitize_table_name(foreign_table)
+
+                if relation_type == "1:1":
+                    rel_symbol = "||--||"
+                elif relation_type == "N:M":
+                    rel_symbol = "}o--o{"
+                elif relation_type == "N:1":
+                    rel_symbol = "}o--||"
+                else:
+                    rel_symbol = "||--o{"
+
+                safe_fk = re.sub(r'[^\w]', '_', str(foreign_key)) if foreign_key else "fk"
+                lines.append(f"    {safe_primary} {rel_symbol} {safe_foreign} : {safe_fk}")
 
         return "\n".join(lines)
 

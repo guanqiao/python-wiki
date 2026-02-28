@@ -6,52 +6,100 @@
 {{ description }}
 {% endif %}
 
-{% if modules %}
-## {{ labels['modules'] }}
+{% if api_overview %}
+## 概述
 
-{% for module in modules %}
-### {{ module.name }}
-
-{% if module.description %}
-{{ module.description }}
+{{ api_overview }}
 {% endif %}
 
-{% if module.classes %}
-#### {{ labels['classes'] }}
+{% if authentication %}
+## 认证
 
-{% for cls in module.classes %}
-##### `{{ cls.name }}`
-
-{% if cls.bases %}
-**{{ labels['inheritance'] }}**: {{ cls.bases | join(', ') }}
+{{ authentication }}
 {% endif %}
 
-{% if cls.description %}
-{{ cls.description }}
+{% if endpoints %}
+## API 端点
+
+{% for endpoint in endpoints %}
+### {{ endpoint.method }} {{ endpoint.path }}
+
+{% if endpoint.description %}
+{{ endpoint.description }}
 {% endif %}
 
-{% if cls.methods %}
-**{{ labels['methods'] }}**:
+**处理器**: `{{ endpoint.handler }}`
 
-| 方法 | 参数 | 返回值 | 描述 |
-|------|------|--------|------|
-{% for method in cls.methods %}
-| `{{ method.name }}` | {{ method.params }} | `{{ method.return_type }}` | {{ method.description }} |
+{% if endpoint.tags %}
+**标签**: {{ endpoint.tags | join(', ') }}
+{% endif %}
+
+{% if endpoint.parameters %}
+**参数**:
+
+| 名称 | 类型 | 位置 | 必填 | 默认值 |
+|------|------|------|------|--------|
+{% for param in endpoint.parameters %}
+| {{ param.name }} | {{ param.type }} | {{ param.in }} | {{ '是' if param.required else '否' }} | {{ param.default or '-' }} |
 {% endfor %}
 {% endif %}
 
+{% if endpoint.request_body %}
+**请求体**:
+
+```json
+{{ endpoint.request_body | tojson(indent=2) }}
+```
+{% endif %}
+
+{% if endpoint.responses %}
+**响应**:
+
+{% for status, response in endpoint.responses.items() %}
+- **{{ status }}**: {{ response.get('description', '') }}
+{% if response.get('content') %}
+  ```json
+  {{ response.content | tojson(indent=2) }}
+  ```
+{% endif %}
 {% endfor %}
 {% endif %}
 
-{% if module.functions %}
-#### {{ labels['functions'] }}
+{% if endpoint.deprecated %}
+**⚠️ 已弃用**
+{% endif %}
 
-| 函数 | 参数 | 返回值 | 描述 |
-|------|------|--------|------|
-{% for func in module.functions %}
-| `{{ func.name }}` | {{ func.params }} | `{{ func.return_type }}` | {{ func.description }} |
+---
+
 {% endfor %}
 {% endif %}
 
+{% if openapi %}
+## OpenAPI 规范
+
+```json
+{{ openapi | tojson(indent=2) }}
+```
+{% endif %}
+
+{% if error_handling %}
+## 错误处理
+
+{{ error_handling }}
+{% endif %}
+
+{% if common_headers %}
+## 通用请求头
+
+| 名称 | 描述 | 必填 |
+|------|------|------|
+{% for name, desc in common_headers.items() %}
+| {{ name }} | {{ desc }} | 是 |
 {% endfor %}
+{% endif %}
+
+{% if rate_limiting %}
+## 速率限制
+
+{{ rate_limiting }}
 {% endif %}

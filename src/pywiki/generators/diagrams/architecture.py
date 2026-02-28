@@ -241,8 +241,13 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
         title: Optional[str] = None,
     ) -> str:
         """
-        从代码解析结果自动生成架构图
-        
+        从代码解析结果自动生成三层架构图
+
+        生成：
+        1. 子系统架构图（高阶抽象）
+        2. 分层架构图（按层聚合）
+        3. 关键模块详细图（最重要的20个模块）
+
         Args:
             parse_result: 代码解析结果，包含 modules 信息
             project_name: 项目名称
@@ -252,28 +257,55 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
             return self.generate({"layers": [], "components": [], "connections": []}, title)
 
         modules = parse_result.modules
+
+        # 1. 生成子系统架构图（最高抽象层）
+        subsystems = self._aggregate_modules_by_package(modules)
+        subsystem_diagram = self._generate_subsystem_diagram(subsystems, f"{project_name} - Subsystem Architecture")
+
+        # 2. 识别关键模块
+        key_modules = self._identify_key_modules(modules)
+
+        # 3. 生成分层架构图（基于关键模块）
         layers_dict: dict[str, list[dict]] = defaultdict(list)
         components = []
         connections = []
         module_layer_map: dict[str, str] = {}
 
-        for module in modules:
+        # 优先使用关键模块，如果不够再补充其他模块
+        modules_to_show = key_modules[:30]
+        shown_names = {m.name if hasattr(m, 'name') else str(m) for m in modules_to_show}
+
+        # 如果关键模块不足30个，补充其他重要模块
+        if len(modules_to_show) < 30:
+            for m in modules:
+                name = m.name if hasattr(m, 'name') else str(m)
+                if name not in shown_names:
+                    modules_to_show.append(m)
+                    shown_names.add(name)
+                if len(modules_to_show) >= 30:
+                    break
+
+        for module in modules_to_show:
             module_name = module.name if hasattr(module, "name") else str(module)
-            
+
             module_display_name = self._extract_display_name(module_name)
-            
+
             layer = self._detect_layer_for_module(module_name)
             module_layer_map[module_name] = layer
 
             comp_type = self._detect_component_type(module)
             comp_id = self.sanitize_id(module_name)
 
+            # 计算模块的简要统计
+            class_count = len(module.classes) if hasattr(module, 'classes') else 0
+            method_count = sum(len(c.methods) for c in module.classes) if hasattr(module, 'classes') else 0
+
             component = {
                 "id": comp_id,
                 "name": module_display_name,
                 "type": comp_type.value if isinstance(comp_type, ComponentType) else comp_type,
                 "layer": layer,
-                "description": module.docstring[:50] if hasattr(module, "docstring") and module.docstring else "",
+                "description": f"{class_count} classes, {method_count} methods" if class_count > 0 else "",
             }
 
             layers_dict[layer].append(component)
@@ -297,7 +329,7 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
             for layer_name, comps in sorted(layers_dict.items(), key=lambda x: self._layer_order(x[0]))
         ]
 
-        style = self._detect_architecture_style(modules, layers_dict)
+        style = self._detect_architecture_style(modules_to_show, layers_dict)
 
         data = {
             "layers": layers,
@@ -306,22 +338,254 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
             "style": style,
         }
 
-        return self.generate(data, title or f"{project_name} Architecture")
+        layered_diagram = self.generate(data, title or f"{project_name} - Layered Architecture")
+
+        # 合并两个图表
+        combined = f"""## {project_name} Architecture
+
+### Subsystem View (High Level)
+
+{subsystem_diagram}
+
+### Layered View (Detailed)
+
+{layered_diagram}
+
+---
+*Generated with key modules: {len(key_modules)} identified, {len(modules_to_show)} displayed*
+"""
+
+        return combined
 
     def _extract_display_name(self, module_name: str) -> str:
         """从模块名提取显示名称，处理路径格式"""
         import re
-        
+
         if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
             parts = re.split(r'[\\/]', module_name)
             meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
             if meaningful_parts:
                 return meaningful_parts[-1].replace('.py', '').replace('.java', '').replace('.ts', '')
-        
+
         if '.' in module_name:
             return module_name.split('.')[-1]
-        
+
         return module_name
+
+    def _aggregate_modules_by_package(self, modules: list) -> dict[str, dict]:
+        """
+        按包/命名空间聚合模块，识别子系统
+
+        返回: {子系统名称: {modules: [], type: str, importance: int}}
+        """
+        from collections import defaultdict
+
+        # 提取包前缀
+        package_groups: dict[str, list] = defaultdict(list)
+
+        for module in modules:
+            name = module.name if hasattr(module, 'name') else str(module)
+
+            # 处理Java包名 (com.example.user.controller)
+            if '.' in name:
+                parts = name.split('.')
+                # 使用前2-3级包名作为子系统标识
+                if len(parts) >= 3:
+                    # 跳过常见的组织前缀 (com, org, cn)
+                    start_idx = 1 if parts[0] in ('com', 'org', 'cn', 'net') else 0
+                    subsystem_key = '.'.join(parts[start_idx:start_idx+2])
+                else:
+                    subsystem_key = parts[0]
+            else:
+                # 处理文件路径
+                parts = name.replace('\\', '/').split('/')
+                if len(parts) >= 2:
+                    subsystem_key = parts[-2] if parts[-2] not in ('src', 'main', 'java', 'python') else parts[-1]
+                else:
+                    subsystem_key = 'core'
+
+            package_groups[subsystem_key].append(module)
+
+        # 分析每个子系统
+        subsystems = {}
+        for pkg_name, pkg_modules in package_groups.items():
+            # 计算子系统类型
+            types = []
+            for m in pkg_modules:
+                comp_type = self._detect_component_type(m)
+                types.append(comp_type.value if hasattr(comp_type, 'value') else str(comp_type))
+
+            # 确定主导类型
+            type_counts = {}
+            for t in types:
+                type_counts[t] = type_counts.get(t, 0) + 1
+            dominant_type = max(type_counts, key=type_counts.get) if type_counts else 'service'
+
+            # 计算重要性（模块数量 + 类数量）
+            importance = len(pkg_modules)
+            for m in pkg_modules:
+                if hasattr(m, 'classes'):
+                    importance += len(m.classes)
+
+            subsystems[pkg_name] = {
+                'modules': pkg_modules,
+                'type': dominant_type,
+                'importance': importance,
+                'display_name': pkg_name.split('.')[-1].replace('_', ' ').title(),
+            }
+
+        return subsystems
+
+    def _identify_key_modules(self, modules: list) -> list:
+        """
+        识别关键模块（枢纽模块）
+
+        基于：
+        1. 连接度（入度 + 出度）
+        2. 模块类型（Controller, Service优先）
+        3. 类数量
+        """
+        if not modules:
+            return []
+
+        # 计算依赖关系
+        module_names = {m.name if hasattr(m, 'name') else str(m) for m in modules}
+        module_map = {m.name if hasattr(m, 'name') else str(m): m for m in modules}
+
+        # 计算入度和出度
+        in_degree: dict[str, int] = {name: 0 for name in module_names}
+        out_degree: dict[str, int] = {name: 0 for name in module_names}
+
+        for module in modules:
+            name = module.name if hasattr(module, 'name') else str(module)
+
+            if hasattr(module, 'imports') and module.imports:
+                for imp in module.imports:
+                    imp_module = imp.module if hasattr(imp, 'module') else str(imp)
+                    out_degree[name] = out_degree.get(name, 0) + 1
+
+                    # 检查是否依赖其他项目模块
+                    for other_name in module_names:
+                        if other_name == imp_module or other_name.startswith(imp_module + '.'):
+                            in_degree[other_name] = in_degree.get(other_name, 0) + 1
+
+        # 计算关键度分数
+        key_scores = []
+        for module in modules:
+            name = module.name if hasattr(module, 'name') else str(module)
+
+            # 基础分数：连接度
+            connectivity = in_degree.get(name, 0) + out_degree.get(name, 0)
+
+            # 类型加分
+            type_bonus = 0
+            comp_type = self._detect_component_type(module)
+            type_str = comp_type.value if hasattr(comp_type, 'value') else str(comp_type)
+            if type_str in ['controller', 'api', 'gateway']:
+                type_bonus = 10
+            elif type_str in ['service']:
+                type_bonus = 5
+            elif type_str in ['repository']:
+                type_bonus = 3
+
+            # 规模加分
+            size_bonus = 0
+            if hasattr(module, 'classes'):
+                size_bonus = min(len(module.classes), 5)
+
+            total_score = connectivity + type_bonus + size_bonus
+
+            key_scores.append({
+                'module': module,
+                'score': total_score,
+                'connectivity': connectivity,
+                'in_degree': in_degree.get(name, 0),
+                'out_degree': out_degree.get(name, 0),
+            })
+
+        # 按分数排序，返回前N个
+        key_scores.sort(key=lambda x: x['score'], reverse=True)
+        return [item['module'] for item in key_scores[:20]]
+
+    def _generate_subsystem_diagram(self, subsystems: dict[str, dict], title: str = "System Architecture") -> str:
+        """
+        生成子系统级别的架构图
+        """
+        lines = ["graph TB"]
+        lines.append(f"    %% {title}")
+        lines.append("")
+
+        # 按类型分组
+        type_groups: dict[str, list] = {}
+        for name, info in subsystems.items():
+            comp_type = info['type']
+            if comp_type not in type_groups:
+                type_groups[comp_type] = []
+            type_groups[comp_type].append((name, info))
+
+        # 为每个类型创建子图
+        type_colors = {
+            'api': '#2196F3',
+            'controller': '#4CAF50',
+            'service': '#9C27B0',
+            'repository': '#FF9800',
+            'model': '#795548',
+            'util': '#607D8B',
+        }
+
+        for comp_type, items in type_groups.items():
+            # 只显示重要的子系统（限制数量）
+            items = sorted(items, key=lambda x: x[1]['importance'], reverse=True)[:8]
+
+            if len(items) > 1:
+                lines.append(f"    subgraph {comp_type}_group [{comp_type.title()} Layer]")
+
+            for name, info in items:
+                safe_id = self.sanitize_id(name)
+                display = info['display_name']
+                module_count = len(info['modules'])
+
+                color = type_colors.get(comp_type, '#4A90D9')
+                lines.append(f"        {safe_id}[\"{display}<br/>({module_count} modules)\"]")
+                lines.append(f"        style {safe_id} fill:{color},stroke:{color[:-2]}AA,color:#fff")
+
+            if len(items) > 1:
+                lines.append("    end")
+            lines.append("")
+
+        # 添加子系统间的依赖关系（基于模块间的依赖）
+        added_edges = set()
+        for name1, info1 in subsystems.items():
+            for name2, info2 in subsystems.items():
+                if name1 == name2:
+                    continue
+
+                # 检查是否有模块间的依赖
+                has_dependency = False
+                for m1 in info1['modules']:
+                    if hasattr(m1, 'imports') and m1.imports:
+                        m1_name = m1.name if hasattr(m1, 'name') else str(m1)
+                        for imp in m1.imports:
+                            imp_module = imp.module if hasattr(imp, 'module') else str(imp)
+                            for m2 in info2['modules']:
+                                m2_name = m2.name if hasattr(m2, 'name') else str(m2)
+                                if m2_name == imp_module or m2_name.startswith(imp_module + '.'):
+                                    has_dependency = True
+                                    break
+                            if has_dependency:
+                                break
+                    if has_dependency:
+                        break
+
+                if has_dependency:
+                    edge_key = f"{name1}->{name2}"
+                    if edge_key not in added_edges:
+                        safe_source = self.sanitize_id(name1)
+                        safe_target = self.sanitize_id(name2)
+                        lines.append(f"    {safe_source} --> {safe_target}")
+                        added_edges.add(edge_key)
+
+        return self.wrap_mermaid("\n".join(lines))
 
     def _detect_layer_for_module(self, module_name: str) -> str:
         """检测模块所属层级"""
@@ -416,6 +680,257 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
             return ArchitectureStyle.LAYERED
 
         return ArchitectureStyle.MONOLITHIC
+
+    def _detect_design_patterns(self, modules: list) -> dict[str, list[str]]:
+        """
+        检测项目中使用的设计模式
+
+        返回: {模式名称: [使用此模式的类列表]}
+        """
+        patterns = {
+            "Singleton": [],
+            "Factory": [],
+            "Strategy": [],
+            "Observer": [],
+            "Repository": [],
+            "Service": [],
+            "Controller": [],
+            "Entity": [],
+            "ValueObject": [],
+            "Aggregate": [],
+        }
+
+        for module in modules:
+            if not hasattr(module, 'classes'):
+                continue
+
+            for cls in module.classes:
+                class_name = cls.name
+                decorators = getattr(cls, 'decorators', [])
+                bases = getattr(cls, 'bases', [])
+
+                # 检测Spring模式
+                for decorator in decorators:
+                    decorator_str = str(decorator).lower()
+                    if 'singleton' in decorator_str or '@component' in decorator_str or '@service' in decorator_str:
+                        if class_name not in patterns["Singleton"]:
+                            patterns["Singleton"].append(class_name)
+                    if '@controller' in decorator_str or '@restcontroller' in decorator_str:
+                        if class_name not in patterns["Controller"]:
+                            patterns["Controller"].append(class_name)
+                    if '@service' in decorator_str:
+                        if class_name not in patterns["Service"]:
+                            patterns["Service"].append(class_name)
+                    if '@repository' in decorator_str:
+                        if class_name not in patterns["Repository"]:
+                            patterns["Repository"].append(class_name)
+                    if '@entity' in decorator_str:
+                        if class_name not in patterns["Entity"]:
+                            patterns["Entity"].append(class_name)
+
+                # 检测继承模式
+                for base in bases:
+                    base_lower = base.lower()
+                    if 'factory' in base_lower:
+                        if class_name not in patterns["Factory"]:
+                            patterns["Factory"].append(class_name)
+                    if 'observer' in base_lower or 'listener' in base_lower:
+                        if class_name not in patterns["Observer"]:
+                            patterns["Observer"].append(class_name)
+                    if 'strategy' in base_lower:
+                        if class_name not in patterns["Strategy"]:
+                            patterns["Strategy"].append(class_name)
+
+                # 检测方法模式
+                if hasattr(cls, 'methods'):
+                    for method in cls.methods:
+                        method_name = method.name.lower()
+                        if 'getinstance' in method_name or 'get_instance' in method_name:
+                            if class_name not in patterns["Singleton"]:
+                                patterns["Singleton"].append(class_name)
+                        if 'create' in method_name or 'build' in method_name:
+                            if class_name not in patterns["Factory"]:
+                                patterns["Factory"].append(class_name)
+
+        # 过滤掉没有检测到的模式
+        return {k: v for k, v in patterns.items() if v}
+
+    def _analyze_architecture_metrics(self, modules: list) -> dict[str, Any]:
+        """
+        分析架构质量指标
+
+        返回: {
+            "total_modules": int,
+            "total_classes": int,
+            "total_methods": int,
+            "avg_methods_per_class": float,
+            "layer_distribution": dict,
+            "dependency_density": float,
+            "circular_dependencies": list,
+        }
+        """
+        metrics = {
+            "total_modules": len(modules),
+            "total_classes": 0,
+            "total_methods": 0,
+            "avg_methods_per_class": 0.0,
+            "layer_distribution": {},
+            "dependency_density": 0.0,
+            "circular_dependencies": [],
+        }
+
+        # 统计类和方法
+        total_methods = 0
+        total_classes = 0
+
+        for module in modules:
+            if hasattr(module, 'classes'):
+                module_classes = len(module.classes)
+                total_classes += module_classes
+
+                for cls in module.classes:
+                    if hasattr(cls, 'methods'):
+                        total_methods += len(cls.methods)
+
+        metrics["total_classes"] = total_classes
+        metrics["total_methods"] = total_methods
+
+        if total_classes > 0:
+            metrics["avg_methods_per_class"] = round(total_methods / total_classes, 2)
+
+        # 统计层级分布
+        layer_counts = {}
+        for module in modules:
+            layer = self._detect_layer_for_module(
+                module.name if hasattr(module, 'name') else str(module)
+            )
+            layer_counts[layer] = layer_counts.get(layer, 0) + 1
+
+        metrics["layer_distribution"] = layer_counts
+
+        # 计算依赖密度
+        module_names = {m.name if hasattr(m, 'name') else str(m) for m in modules}
+        total_possible_deps = len(modules) * (len(modules) - 1)
+        actual_deps = 0
+
+        for module in modules:
+            if hasattr(module, 'imports') and module.imports:
+                for imp in module.imports:
+                    imp_module = imp.module if hasattr(imp, 'module') else str(imp)
+                    for other_name in module_names:
+                        if other_name == imp_module or other_name.startswith(imp_module + '.'):
+                            actual_deps += 1
+                            break
+
+        if total_possible_deps > 0:
+            metrics["dependency_density"] = round(actual_deps / total_possible_deps, 4)
+
+        # 检测循环依赖
+        metrics["circular_dependencies"] = self._detect_circular_dependencies(modules)
+
+        return metrics
+
+    def _detect_circular_dependencies(self, modules: list) -> list[list[str]]:
+        """
+        检测循环依赖
+
+        返回: [[模块A, 模块B, 模块C], ...] 每个循环依赖链
+        """
+        # 构建依赖图
+        module_names = {m.name if hasattr(m, 'name') else str(m) for m in modules}
+        graph: dict[str, set[str]] = {name: set() for name in module_names}
+
+        for module in modules:
+            name = module.name if hasattr(module, 'name') else str(module)
+
+            if hasattr(module, 'imports') and module.imports:
+                for imp in module.imports:
+                    imp_module = imp.module if hasattr(imp, 'module') else str(imp)
+                    for other_name in module_names:
+                        if other_name == imp_module or other_name.startswith(imp_module + '.'):
+                            graph[name].add(other_name)
+                            break
+
+        # 使用DFS检测循环
+        cycles = []
+        visited = set()
+        rec_stack = set()
+        path = []
+
+        def dfs(node: str):
+            visited.add(node)
+            rec_stack.add(node)
+            path.append(node)
+
+            for neighbor in graph.get(node, set()):
+                if neighbor not in visited:
+                    dfs(neighbor)
+                elif neighbor in rec_stack:
+                    # 发现循环
+                    cycle_start = path.index(neighbor)
+                    cycle = path[cycle_start:] + [neighbor]
+                    # 标准化循环（从最小的开始）
+                    min_idx = cycle.index(min(cycle[:-1]))
+                    normalized = cycle[min_idx:-1] + cycle[:min_idx] + [cycle[min_idx]]
+                    if normalized not in cycles:
+                        cycles.append(normalized)
+
+            path.pop()
+            rec_stack.remove(node)
+
+        for node in module_names:
+            if node not in visited:
+                dfs(node)
+
+        return cycles
+
+    def _generate_architecture_quality_report(self, metrics: dict) -> str:
+        """
+        生成架构质量报告
+        """
+        lines = ["## Architecture Quality Report", ""]
+
+        # 基础统计
+        lines.append("### Basic Statistics")
+        lines.append(f"- **Total Modules**: {metrics['total_modules']}")
+        lines.append(f"- **Total Classes**: {metrics['total_classes']}")
+        lines.append(f"- **Total Methods**: {metrics['total_methods']}")
+        lines.append(f"- **Avg Methods per Class**: {metrics['avg_methods_per_class']}")
+        lines.append("")
+
+        # 层级分布
+        lines.append("### Layer Distribution")
+        for layer, count in sorted(metrics['layer_distribution'].items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / metrics['total_modules'] * 100) if metrics['total_modules'] > 0 else 0
+            lines.append(f"- **{layer}**: {count} modules ({percentage:.1f}%)")
+        lines.append("")
+
+        # 依赖密度
+        lines.append("### Dependency Analysis")
+        density = metrics['dependency_density']
+        if density < 0.1:
+            status = "✅ Low coupling (good)"
+        elif density < 0.3:
+            status = "⚠️ Medium coupling"
+        else:
+            status = "❌ High coupling (needs attention)"
+        lines.append(f"- **Dependency Density**: {density:.2%} {status}")
+        lines.append("")
+
+        # 循环依赖
+        cycles = metrics['circular_dependencies']
+        if cycles:
+            lines.append(f"### ⚠️ Circular Dependencies Detected ({len(cycles)} found)")
+            for i, cycle in enumerate(cycles[:5], 1):  # 最多显示5个
+                cycle_str = " → ".join(cycle)
+                lines.append(f"{i}. {cycle_str}")
+            if len(cycles) > 5:
+                lines.append(f"... and {len(cycles) - 5} more")
+        else:
+            lines.append("### ✅ No Circular Dependencies")
+        lines.append("")
+
+        return "\n".join(lines)
 
     def _generate_microservice_diagram(self, data: dict, title: Optional[str]) -> str:
         """生成微服务架构图"""

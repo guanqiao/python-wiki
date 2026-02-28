@@ -150,31 +150,71 @@ class TSDGenerator(BaseDocGenerator):
                     if cls.docstring:
                         for keyword, label in decision_keywords:
                             if keyword in cls.docstring:
-                                decisions.append({
-                                    "title": f"{cls.name} - {label}",
-                                    "status": "open",
-                                    "date": "",
-                                    "decider": "",
-                                    "context": module.name,
-                                    "decision": cls.docstring.split("\n")[0],
-                                    "consequences": "",
-                                })
+                                # 提取TODO相关的行，而不是第一行
+                                todo_lines = self._extract_todo_lines(cls.docstring, keyword)
+                                if todo_lines:
+                                    decisions.append({
+                                        "title": f"{cls.name} - {label}",
+                                        "status": "open",
+                                        "date": "",
+                                        "decider": "",
+                                        "context": module.name,
+                                        "decision": todo_lines,
+                                        "consequences": "",
+                                    })
 
                     annotations = getattr(cls, 'annotations', []) or getattr(cls, 'decorators', [])
                     for annotation in annotations:
                         for keyword, label in decision_keywords:
                             if keyword in annotation:
-                                decisions.append({
-                                    "title": f"{cls.name} - {label}",
-                                    "status": "open",
-                                    "date": "",
-                                    "decider": "",
-                                    "context": module.name,
-                                    "decision": f"注解: {annotation}",
-                                    "consequences": "",
-                                })
+                                # 过滤掉无意义的注解内容
+                                if self._is_meaningful_annotation(annotation):
+                                    decisions.append({
+                                        "title": f"{cls.name} - {label}",
+                                        "status": "open",
+                                        "date": "",
+                                        "decider": "",
+                                        "context": module.name,
+                                        "decision": f"注解: {annotation}",
+                                        "consequences": "",
+                                    })
 
         return decisions[:10]
+
+    def _extract_todo_lines(self, docstring: str, keyword: str) -> str:
+        """提取包含TODO的行及其上下文"""
+        lines = docstring.split("\n")
+        result_lines = []
+
+        for i, line in enumerate(lines):
+            if keyword in line:
+                # 提取当前行（清理前后空格）
+                clean_line = line.strip()
+                # 过滤掉太短的行（可能是代码片段）
+                if len(clean_line) < 5:
+                    continue
+                # 过滤掉纯代码行（以大括号、分号结尾等）
+                if clean_line.endswith(('{', '}', ';', ')', '(')) and len(clean_line) < 20:
+                    continue
+                # 过滤掉只有关键字的行
+                if clean_line.lower() in [keyword.lower(), f"{keyword}:", f"{keyword}()"]:
+                    continue
+                result_lines.append(clean_line)
+
+        return "\n".join(result_lines) if result_lines else ""
+
+    def _is_meaningful_annotation(self, annotation: str) -> bool:
+        """检查注解是否有意义"""
+        if not annotation or len(annotation) < 3:
+            return False
+        # 过滤掉纯符号
+        if annotation.strip() in ['@', '(', ')', '{', '}', '[', ']']:
+            return False
+        # 过滤掉只有访问修饰符的
+        meaningless = ['private', 'public', 'protected', 'static', 'final', 'abstract']
+        if annotation.strip().lower() in meaningless:
+            return False
+        return True
 
     def _extract_tech_debt(self, context: DocGeneratorContext, project_language: str) -> list[dict[str, Any]]:
         """提取技术债务"""
@@ -226,27 +266,31 @@ class TSDGenerator(BaseDocGenerator):
             for module in context.parse_result.modules:
                 for cls in module.classes:
                     if cls.docstring:
-                        doc_lower = cls.docstring.lower()
                         for pattern, severity, label in debt_patterns:
-                            if pattern.lower() in doc_lower:
-                                debts.append({
-                                    "name": f"{cls.name} - {label}",
-                                    "severity": severity,
-                                    "location": f"{module.name}.{cls.name}",
-                                    "description": cls.docstring.split("\n")[0][:100],
-                                    "suggestion": "建议处理此技术债务",
-                                })
-                                break
+                            if pattern.lower() in cls.docstring.lower():
+                                # 使用改进的TODO提取方法
+                                todo_lines = self._extract_todo_lines(cls.docstring, pattern)
+                                if todo_lines:
+                                    debts.append({
+                                        "name": f"{cls.name} - {label}",
+                                        "severity": severity,
+                                        "location": f"{module.name}.{cls.name}",
+                                        "description": todo_lines[:200],  # 限制长度
+                                        "suggestion": "建议处理此技术债务",
+                                    })
+                                    break
 
                     annotations = getattr(cls, 'annotations', []) or getattr(cls, 'decorators', [])
                     for annotation in annotations:
                         for pattern, severity, label in debt_patterns:
                             if pattern in annotation:
-                                debts.append({
-                                    "name": f"{cls.name} - {label}",
-                                    "severity": severity,
-                                    "location": f"{module.name}.{cls.name}",
-                                    "description": f"注解: {annotation}",
+                                # 过滤无意义注解
+                                if self._is_meaningful_annotation(annotation):
+                                    debts.append({
+                                        "name": f"{cls.name} - {label}",
+                                        "severity": severity,
+                                        "location": f"{module.name}.{cls.name}",
+                                        "description": f"注解: {annotation}",
                                     "suggestion": "建议处理此技术债务",
                                 })
                                 break

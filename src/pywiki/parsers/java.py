@@ -253,6 +253,44 @@ class JavaParser(BaseParser):
         """获取节点文本"""
         return source[node.start_byte:node.end_byte]
 
+    def _extract_name_from_source(self, source: str, node, type_hint: str = "class") -> str:
+        """从源代码中提取类/枚举/接口名称
+        
+        由于 tree-sitter Java grammar 存在字节偏移 bug，某些节点的 start_byte/end_byte 不正确，
+        因此需要使用备用方法从源代码中提取名称。
+        """
+        import re
+        
+        start_byte = node.start_byte
+        end_byte = node.end_byte
+        
+        search_start = max(0, start_byte - 200)
+        search_end = min(len(source), end_byte + 50)
+        search_region = source[search_start:search_end]
+        
+        if type_hint == "enum":
+            match = re.search(r'enum\s+(\w+)', search_region)
+            if match:
+                return match.group(1)
+        elif type_hint == "interface":
+            match = re.search(r'interface\s+(\w+)', search_region)
+            if match:
+                return match.group(1)
+        elif type_hint == "record":
+            match = re.search(r'record\s+(\w+)', search_region)
+            if match:
+                return match.group(1)
+        elif type_hint == "annotation":
+            match = re.search(r'@interface\s+(\w+)', search_region)
+            if match:
+                return match.group(1)
+        else:
+            match = re.search(r'(?:public|private|protected)?\s*(?:static)?\s*class\s+(\w+)', search_region)
+            if match:
+                return match.group(1)
+        
+        return ""
+
     def _extract_package_name(self, node, source: str) -> str:
         """提取包名"""
         for child in node.children:
@@ -301,7 +339,9 @@ class JavaParser(BaseParser):
                 is_abstract = "abstract" in mods
                 annotations = anns
             elif child.type == "identifier":
-                name = self._get_node_text(child, source)
+                raw_name = self._get_node_text(child, source)
+                if raw_name and raw_name.isidentifier():
+                    name = raw_name
             elif child.type == "superclass":
                 for super_child in child.children:
                     if super_child.type == "type_identifier":
@@ -314,6 +354,19 @@ class JavaParser(BaseParser):
                         for type_node in iface_child.children:
                             if type_node.type == "type_identifier":
                                 bases.append(self._get_node_text(type_node, source))
+
+        if not name or not name.isidentifier():
+            name = self._extract_name_from_source(source, node, "class")
+        
+        if not name or not name.isidentifier():
+            return ClassInfo(
+                name="UnknownClass",
+                full_name=f"{package_name}.UnknownClass" if package_name else "UnknownClass",
+                visibility=visibility,
+                docstring=self._extract_javadoc(node, source) or "",
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+            )
 
         full_name = f"{package_name}.{name}" if package_name else name
 
@@ -374,7 +427,9 @@ class JavaParser(BaseParser):
                 visibility = self._get_visibility_from_modifiers(mods)
                 annotations = anns
             elif child.type == "identifier":
-                name = self._get_node_text(child, source)
+                raw_name = self._get_node_text(child, source)
+                if raw_name and raw_name.isidentifier():
+                    name = raw_name
             elif child.type == "extends_interfaces":
                 for ext_child in child.children:
                     if ext_child.type == "type_identifier":
@@ -383,6 +438,19 @@ class JavaParser(BaseParser):
                         for type_node in ext_child.children:
                             if type_node.type == "type_identifier":
                                 bases.append(self._get_node_text(type_node, source))
+
+        if not name or not name.isidentifier():
+            name = self._extract_name_from_source(source, node, "interface")
+        
+        if not name or not name.isidentifier():
+            return ClassInfo(
+                name="UnknownInterface",
+                full_name=f"{package_name}.UnknownInterface" if package_name else "UnknownInterface",
+                visibility=visibility,
+                docstring=self._extract_javadoc(node, source) or "",
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+            )
 
         full_name = f"{package_name}.{name}" if package_name else name
 
@@ -430,7 +498,24 @@ class JavaParser(BaseParser):
                 visibility = self._get_visibility_from_modifiers(mods)
                 annotations = anns
             elif child.type == "identifier":
-                name = self._get_node_text(child, source)
+                raw_name = self._get_node_text(child, source)
+                if raw_name and raw_name.isidentifier():
+                    name = raw_name
+        
+        if not name or not name.isidentifier():
+            name = self._extract_name_from_source(source, node, "enum")
+        
+        if not name or not name.isidentifier():
+            return ClassInfo(
+                name="UnknownEnum",
+                full_name=f"{package_name}.UnknownEnum" if package_name else "UnknownEnum",
+                visibility=visibility,
+                is_enum=True,
+                docstring=self._extract_javadoc(node, source) or "",
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                decorators=annotations,
+            )
 
         full_name = f"{package_name}.{name}" if package_name else name
 
@@ -471,7 +556,22 @@ class JavaParser(BaseParser):
                 mods, _ = self._parse_modifiers(child, source)
                 visibility = self._get_visibility_from_modifiers(mods)
             elif child.type == "identifier":
-                name = self._get_node_text(child, source)
+                raw_name = self._get_node_text(child, source)
+                if raw_name and raw_name.isidentifier():
+                    name = raw_name
+
+        if not name or not name.isidentifier():
+            name = self._extract_name_from_source(source, node, "annotation")
+        
+        if not name or not name.isidentifier():
+            return ClassInfo(
+                name="UnknownAnnotation",
+                full_name=f"{package_name}.UnknownAnnotation" if package_name else "UnknownAnnotation",
+                visibility=visibility,
+                docstring=self._extract_javadoc(node, source) or "",
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+            )
 
         full_name = f"{package_name}.{name}" if package_name else name
 
@@ -779,7 +879,22 @@ class JavaParser(BaseParser):
                 visibility = self._get_visibility_from_modifiers(mods)
                 annotations = anns
             elif child.type == "identifier":
-                name = self._get_node_text(child, source)
+                raw_name = self._get_node_text(child, source)
+                if raw_name and raw_name.isidentifier():
+                    name = raw_name
+
+        if not name or not name.isidentifier():
+            name = self._extract_name_from_source(source, node, "record")
+        
+        if not name or not name.isidentifier():
+            return ClassInfo(
+                name="UnknownRecord",
+                full_name=f"{package_name}.UnknownRecord" if package_name else "UnknownRecord",
+                visibility=visibility,
+                docstring=self._extract_javadoc(node, source) or "",
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+            )
 
         full_name = f"{package_name}.{name}" if package_name else name
 

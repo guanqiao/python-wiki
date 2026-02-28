@@ -123,7 +123,7 @@ class TechStackGenerator(BaseDocGenerator):
         for module_name, count in import_counts.items():
             module_lower = module_name.lower()
             
-            component = self.analyzer._identify_component(module_name)
+            component = self.analyzer._identify_component(module_name, context.language.value)
             if component:
                 if component.name.lower() not in existing_names:
                     component.usage_locations = import_locations.get(module_name, [])
