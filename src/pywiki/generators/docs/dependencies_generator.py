@@ -584,58 +584,95 @@ class DependenciesGenerator(BaseDocGenerator):
     def _categorize_dependency(self, name: str) -> str:
         """分类依赖"""
         categories = {
-            self.labels.get("web_frameworks", "Web Frameworks"): [
+            self.labels.get("web_frameworks", "Web框架"): [
                 "flask", "django", "fastapi", "starlette", "tornado", "aiohttp",
-                "express", "koa", "nestjs", "spring", "spring-boot", "spring-web", "spring-webmvc",
+                "express", "koa", "nestjs", "spring-web", "spring-webmvc",
                 "spring-webflux", "struts", "play", "spark", "quarkus", "micronaut",
                 "next", "nuxt", "gatsby", "sveltekit", "remix", "astro"
             ],
-            self.labels.get("databases_tech", "Databases"): [
+            self.labels.get("databases_tech", "数据库"): [
                 "sqlalchemy", "pymongo", "redis", "psycopg", "mysql", "mongoose", "prisma", "typeorm",
-                "hibernate", "mybatis", "jpa", "jooq", "querydsl", "jdbc", "hikari",
-                "drizzle", "sequelize", "mikro-orm", "dexie", "lowdb"
+                "hibernate", "mybatis", "mybatisplus", "jpa", "jooq", "querydsl", "jdbc", "hikari",
+                "druid", "drizzle", "sequelize", "mikro-orm", "dexie", "lowdb"
             ],
-            self.labels.get("http_clients", "HTTP Clients"): [
+            self.labels.get("http_clients", "HTTP客户端"): [
                 "requests", "httpx", "urllib3", "aiohttp", "axios", "fetch", "okhttp",
                 "apache-httpclient", "retrofit", "feign", "resttemplate", "webclient",
                 "ky", "got", "superagent", "node-fetch"
             ],
-            self.labels.get("testing", "Testing"): [
+            self.labels.get("testing", "测试"): [
                 "pytest", "unittest", "mock", "hypothesis", "jest", "mocha", "junit",
                 "testng", "assertj", "mockito", "vitest", "cypress", "playwright",
                 "testing-library", "supertest", "chai", "sinon"
             ],
-            self.labels.get("data_processing", "Data Processing"): ["pandas", "numpy", "scipy", "polars"],
-            self.labels.get("machine_learning", "Machine Learning"): ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
+            self.labels.get("data_processing", "数据处理"): ["pandas", "numpy", "scipy", "polars"],
+            self.labels.get("machine_learning", "机器学习"): ["torch", "tensorflow", "sklearn", "transformers", "langchain"],
             self.labels.get("gui_frameworks", "GUI"): ["pyqt", "pyside", "tkinter", "electron", "tauri", "nw.js"],
             self.labels.get("cli_tools", "CLI"): ["click", "typer", "argparse", "commander", "yargs", "commander-js", "oclif"],
-            self.labels.get("validation", "Validation"): ["pydantic", "marshmallow", "cerberus", "joi", "zod", "yup", "class-validator", "ajv"],
-            self.labels.get("utilities", "Utilities"): ["rich", "loguru", "python-dotenv", "lodash", "moment", "dayjs", "date-fns", "ramda"],
-            self.labels.get("logging_tech", "Logging"): ["loguru", "logging", "winston", "log4j", "logback", "slf4j", "pino", "bunyan"],
-            self.labels.get("config_tech", "Configuration"): ["dotenv", "pydantic_settings", "configparser", "convict", "convict", "config", "nconf"],
-            self.labels.get("async_tech", "Async"): ["asyncio", "trio", "anyio", "celery", "bull", "rabbitmq", "kafka"],
-            self.labels.get("security", "Security"): ["cryptography", "passlib", "jwt", "authlib", "bcrypt", "passport", "helmet", "cors"],
-            self.labels.get("microservices", "Microservices"): [
+            self.labels.get("validation", "验证"): ["pydantic", "marshmallow", "cerberus", "joi", "zod", "yup", "class-validator", "ajv", "validation"],
+            self.labels.get("utilities", "工具"): ["rich", "loguru", "python-dotenv", "lodash", "moment", "dayjs", "date-fns", "ramda", "hutool"],
+            self.labels.get("logging_tech", "日志"): ["loguru", "logging", "winston", "log4j", "logback", "slf4j", "pino", "bunyan"],
+            self.labels.get("config_tech", "配置"): ["dotenv", "pydantic_settings", "configparser", "convict", "convict", "config", "nconf"],
+            self.labels.get("async_tech", "异步"): ["asyncio", "trio", "anyio", "celery", "bull", "rabbitmq", "kafka", "reactor", "netty", "webflux"],
+            self.labels.get("security", "安全"): ["cryptography", "passlib", "jwt", "authlib", "bcrypt", "passport", "helmet", "cors", "security"],
+            self.labels.get("microservices", "微服务"): [
                 "spring-cloud", "dubbo", "grpc", "eureka", "nacos", "consul", "etcd",
                 "kafka", "rabbitmq", "activemq", "zeromq", "nats"
             ],
-            self.labels.get("message_queue", "Message Queue"): ["kafka", "rabbitmq", "activemq", "zeromq", "nats", "pulsar", "rocketmq"],
-            self.labels.get("caching", "Caching"): ["redis", "memcached", "caffeine", "guava", "ehcache", "hazelcast"],
-            self.labels.get("monitoring", "Monitoring"): ["prometheus", "grafana", "elk", "zipkin", "jaeger", "sentry", "datadog"],
-            self.labels.get("build_tools", "Build Tools"): ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo", "maven", "gradle"],
-            self.labels.get("frontend_frameworks", "Frontend Frameworks"): ["react", "vue", "angular", "svelte", "solid", "preact", "alpine", "htmx"],
-            self.labels.get("ui_libraries", "UI Libraries"): ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap", "bulma"],
-            self.labels.get("state_management", "State Management"): ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai", "valtio"],
+            self.labels.get("message_queue", "消息队列"): ["kafka", "rabbitmq", "activemq", "zeromq", "nats", "pulsar", "rocketmq"],
+            self.labels.get("caching", "缓存"): ["redis", "memcached", "caffeine", "guava", "ehcache", "hazelcast", "jedis", "redisson"],
+            self.labels.get("monitoring", "监控"): ["prometheus", "grafana", "elk", "zipkin", "jaeger", "sentry", "datadog", "micrometer"],
+            self.labels.get("build_tools", "构建工具"): ["webpack", "vite", "rollup", "esbuild", "parcel", "turbo", "maven", "gradle"],
+            self.labels.get("frontend_frameworks", "前端框架"): ["react", "vue", "angular", "svelte", "solid", "preact", "alpine", "htmx"],
+            self.labels.get("ui_libraries", "UI库"): ["antd", "element", "mui", "material", "chakra", "tailwind", "bootstrap", "bulma"],
+            self.labels.get("state_management", "状态管理"): ["redux", "mobx", "zustand", "pinia", "vuex", "recoil", "jotai", "valtio"],
             "GraphQL": ["graphql", "apollo", "urql", "relay", "graphql-yoga", "graphql-tools"],
-            self.labels.get("api_docs", "API Docs"): ["swagger", "openapi", "springdoc", "swagger-ui", "redoc"],
+            self.labels.get("api_docs", "API文档"): ["swagger", "openapi", "springdoc", "swagger-ui", "redoc", "swagger", "knife4j"],
+            self.labels.get("template_engine", "模板引擎"): ["thymeleaf", "freemarker", "velocity", "jinja2", "mustache", "handlebars"],
+            self.labels.get("workflow", "工作流"): ["flowable", "activiti", "camunda"],
+            self.labels.get("excel", "Excel处理"): ["easyexcel", "poi", "excel", "openpyxl", "xlsxwriter"],
+            self.labels.get("json", "JSON处理"): ["jackson", "gson", "fastjson", "json", "orjson"],
+            self.labels.get("orm", "ORM"): ["mybatis", "mybatisplus", "hibernate", "jpa", "sqlalchemy"],
         }
 
         name_lower = name.lower()
+        
+        if name_lower.startswith("org.springframework"):
+            if "security" in name_lower:
+                return self.labels.get("security", "安全")
+            elif "data" in name_lower:
+                return self.labels.get("orm", "ORM")
+            elif "cloud" in name_lower:
+                return self.labels.get("microservices", "微服务")
+            elif "ai" in name_lower:
+                return self.labels.get("machine_learning", "机器学习")
+            elif "test" in name_lower:
+                return self.labels.get("testing", "测试")
+            elif "kafka" in name_lower or "rabbitmq" in name_lower:
+                return self.labels.get("message_queue", "消息队列")
+            else:
+                return self.labels.get("web_frameworks", "Web框架")
+        
+        if name_lower.startswith("reactor"):
+            return self.labels.get("async_tech", "异步")
+        
+        if name_lower.startswith("io.swagger"):
+            return self.labels.get("api_docs", "API文档")
+        
+        if name_lower.startswith("com.baomidou"):
+            return self.labels.get("orm", "ORM")
+        
+        if name_lower.startswith("cn.hutool"):
+            return self.labels.get("utilities", "工具")
+        
+        if name_lower.startswith("org.flowable"):
+            return self.labels.get("workflow", "工作流")
+        
         for category, keywords in categories.items():
             if any(kw in name_lower for kw in keywords):
                 return category
 
-        return self.labels.get("other", "Other")
+        return self.labels.get("other", "其他")
 
     def _get_dependency_description(self, name: str) -> str:
         """获取依赖描述"""

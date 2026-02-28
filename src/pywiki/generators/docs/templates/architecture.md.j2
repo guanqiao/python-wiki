@@ -12,9 +12,7 @@
 **{{ architecture_style }}**
 
 {% if architecture_diagram %}
-```mermaid
 {{ architecture_diagram }}
-```
 {% endif %}
 {% endif %}
 
@@ -23,9 +21,7 @@
 
 展示系统与外部用户、系统的关系。
 
-```mermaid
 {{ c4_context }}
-```
 {% endif %}
 
 {% if c4_container %}
@@ -33,9 +29,7 @@
 
 展示系统内部的应用/服务/数据库等容器。
 
-```mermaid
 {{ c4_container }}
-```
 {% endif %}
 
 {% if c4_component %}
@@ -43,9 +37,7 @@
 
 展示容器内部的组件结构。
 
-```mermaid
 {{ c4_component }}
-```
 {% endif %}
 
 {% if dependency_graph %}
@@ -53,9 +45,7 @@
 
 展示模块间的依赖关系。
 
-```mermaid
 {{ dependency_graph }}
-```
 {% endif %}
 
 {% if package_diagram %}
@@ -63,9 +53,7 @@
 
 展示包级别的依赖关系和循环依赖。
 
-```mermaid
 {{ package_diagram }}
-```
 {% endif %}
 
 {% if data_flow_diagram %}
@@ -73,9 +61,7 @@
 
 展示系统中的数据流转。
 
-```mermaid
 {{ data_flow_diagram }}
-```
 {% endif %}
 
 {% if layers %}
