@@ -752,16 +752,20 @@ class OverviewGenerator(BaseDocGenerator):
 # 输出要求
 请以 JSON 格式返回以下字段：
 {{
-    "enhanced_description": "项目描述（100-200字，包含项目定位、核心价值、技术特点）",
+    "enhanced_description": "项目描述（800-1000字，包含：项目背景与定位、核心价值主张、主要功能模块、技术架构特点、设计理念与原则、适用场景与优势）",
     "key_features": ["核心功能1（简洁描述）", "核心功能2", "核心功能3"],
     "target_users": "目标用户群体描述",
     "use_cases": ["典型使用场景1", "典型使用场景2"]
 }}
 
 # 质量标准
-- 描述需准确反映项目特点，避免泛泛而谈
-- 核心功能提取最具代表性的3-5项
-- 使用场景需具体可理解
+- 描述需全面详尽，结构清晰，分层次展开
+- 项目背景需说明解决的问题和存在的意义
+- 核心价值需突出项目的独特优势和竞争力
+- 功能模块需按重要性排序，说明各模块职责
+- 技术特点需具体说明技术选型的理由
+- 设计理念需体现架构思想和最佳实践
+- 避免泛泛而谈，每部分都需有实质性内容
 
 请务必使用中文回答。"""
         else:
@@ -780,16 +784,20 @@ Analyze project information and generate a professional project overview documen
 # Output Requirements
 Please return the following fields in JSON format:
 {{
-    "enhanced_description": "Project description (100-200 words, including positioning, core value, technical characteristics)",
+    "enhanced_description": "Project description (800-1000 words, including: project background and positioning, core value proposition, main functional modules, technical architecture characteristics, design philosophy and principles, applicable scenarios and advantages)",
     "key_features": ["core feature 1 (concise description)", "core feature 2", "core feature 3"],
     "target_users": "Target user group description",
     "use_cases": ["typical use case 1", "typical use case 2"]
 }}
 
 # Quality Standards
-- Description should accurately reflect project characteristics, avoid generalizations
-- Extract 3-5 most representative core features
-- Use cases should be specific and understandable
+- Description should be comprehensive and well-structured, organized in layers
+- Project background should explain the problem being solved and significance
+- Core value should highlight unique advantages and competitiveness
+- Functional modules should be ordered by importance with clear responsibilities
+- Technical characteristics should explain rationale for technology choices
+- Design philosophy should reflect architectural thinking and best practices
+- Avoid generalizations, each section should have substantive content
 
 Please respond in English."""
 
