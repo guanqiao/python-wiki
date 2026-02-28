@@ -146,7 +146,13 @@ class LLMConfigDialog(QDialog):
         if not self._current_config:
             return
 
-        index = self.provider_combo.findData(self._current_config.provider)
+        provider_value = self._current_config.provider
+        if isinstance(provider_value, str):
+            provider = LLMProvider(provider_value)
+        else:
+            provider = provider_value
+        
+        index = self.provider_combo.findData(provider)
         if index >= 0:
             self.provider_combo.setCurrentIndex(index)
 
@@ -196,7 +202,7 @@ class LLMConfigDialog(QDialog):
             provider=self.provider_combo.currentData(),
             endpoint=self.endpoint_edit.text().strip(),
             api_key=SecretStr(api_key),
-            model=self.model_edit.text().strip(),
+            model=self.model_edit.text().strip() or "gpt-4",
             ca_cert=Path(ca_cert) if ca_cert else None,
             timeout=self.timeout_spin.value(),
         )

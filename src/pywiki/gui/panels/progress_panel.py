@@ -14,75 +14,8 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QPushButton,
     QGroupBox,
-    QFrame,
-    QScrollArea,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-
-from pywiki.generators.docs.base import DocType
-
-
-DOC_TYPE_LABELS: dict[DocType, str] = {
-    DocType.OVERVIEW: "概述",
-    DocType.TECH_STACK: "技术栈",
-    DocType.API: "API 文档",
-    DocType.ARCHITECTURE: "架构文档",
-    DocType.MODULE: "模块文档",
-    DocType.DATABASE: "数据库文档",
-    DocType.CONFIGURATION: "配置文档",
-    DocType.DEVELOPMENT: "开发文档",
-    DocType.DEPENDENCIES: "依赖文档",
-    DocType.TSD: "技术设计决策",
-}
-
-
-class DocTypeStatusWidget(QFrame):
-    """文档类型状态组件"""
-    
-    def __init__(self, doc_type: DocType, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.doc_type = doc_type
-        self._init_ui()
-    
-    def _init_ui(self) -> None:
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 4px;
-            }
-        """)
-        
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
-        
-        self.status_icon = QLabel("○")
-        self.status_icon.setStyleSheet("font-size: 14px; color: #6c757d;")
-        layout.addWidget(self.status_icon)
-        
-        label = DOC_TYPE_LABELS.get(self.doc_type, self.doc_type.value)
-        self.name_label = QLabel(label)
-        self.name_label.setStyleSheet("font-size: 12px;")
-        layout.addWidget(self.name_label)
-        
-        layout.addStretch()
-    
-    def set_status(self, status: str) -> None:
-        if status == "pending":
-            self.status_icon.setText("○")
-            self.status_icon.setStyleSheet("font-size: 14px; color: #6c757d;")
-        elif status == "running":
-            self.status_icon.setText("●")
-            self.status_icon.setStyleSheet("font-size: 14px; color: #007bff;")
-        elif status == "completed":
-            self.status_icon.setText("✓")
-            self.status_icon.setStyleSheet("font-size: 14px; color: #28a745;")
-        elif status == "error":
-            self.status_icon.setText("✗")
-            self.status_icon.setStyleSheet("font-size: 14px; color: #dc3545;")
 
 
 class ProgressPanel(QWidget):
@@ -95,7 +28,6 @@ class ProgressPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._start_time: Optional[datetime] = None
-        self._doc_type_widgets: dict[DocType, DocTypeStatusWidget] = {}
         self._is_paused: bool = False
         self._init_ui()
 
@@ -179,37 +111,12 @@ class ProgressPanel(QWidget):
         progress_layout.addLayout(status_layout)
         layout.addWidget(progress_group)
 
-        doc_types_group = QGroupBox("文档类型状态")
-        doc_types_layout = QVBoxLayout(doc_types_group)
-        doc_types_layout.setSpacing(4)
-        
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setMaximumHeight(150)
-        
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(2)
-        
-        for doc_type in DocType:
-            widget = DocTypeStatusWidget(doc_type)
-            scroll_layout.addWidget(widget)
-            self._doc_type_widgets[doc_type] = widget
-        
-        scroll_layout.addStretch()
-        scroll_area.setWidget(scroll_widget)
-        doc_types_layout.addWidget(scroll_area)
-        
-        layout.addWidget(doc_types_group)
-
         log_group = QGroupBox("日志")
         log_layout = QVBoxLayout(log_group)
 
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(100)
+        self.log_text.setMinimumHeight(150)
         self.log_text.setStyleSheet("""
             QTextEdit {
                 font-family: Consolas, Monaco, 'Courier New', monospace;
@@ -229,7 +136,7 @@ class ProgressPanel(QWidget):
         log_buttons.addStretch()
         log_layout.addLayout(log_buttons)
 
-        layout.addWidget(log_group)
+        layout.addWidget(log_group, 1)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_time)
@@ -255,9 +162,6 @@ class ProgressPanel(QWidget):
             }
         """)
         self.terminate_button.setVisible(True)
-
-        for doc_type in self._doc_type_widgets:
-            self._doc_type_widgets[doc_type].set_status("pending")
 
         self.add_log("INFO", "开始生成 Wiki...")
 
@@ -379,12 +283,7 @@ class ProgressPanel(QWidget):
         self.status_label.setText(message)
 
     def set_stage(self, stage_id: str, status: str = "running") -> None:
-        try:
-            doc_type = DocType(stage_id)
-            if doc_type in self._doc_type_widgets:
-                self._doc_type_widgets[doc_type].set_status(status)
-        except ValueError:
-            pass
+        pass
 
     def set_current_file(self, file_path: str) -> None:
         self.file_label.setText(f"当前文件: {file_path}")
@@ -423,11 +322,6 @@ class ProgressPanel(QWidget):
                 border-radius: 3px;
             }
         """)
-
-        for doc_type in self._doc_type_widgets:
-            widget = self._doc_type_widgets[doc_type]
-            if widget.status_icon.text() == "●":
-                widget.set_status("completed")
 
         self.add_log("SUCCESS", "Wiki 生成完成")
 

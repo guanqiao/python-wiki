@@ -96,6 +96,13 @@ class DatabaseGenerator(BaseDocGenerator):
 
         if not db_data["tables"]:
             db_data["tables"] = self._extract_from_sql_files(context)
+        else:
+            sql_tables = self._extract_from_sql_files(context)
+            existing_tables = {t["name"].lower() for t in db_data["tables"]}
+            for sql_table in sql_tables:
+                if sql_table["name"].lower() not in existing_tables:
+                    db_data["tables"].append(sql_table)
+                    existing_tables.add(sql_table["name"].lower())
 
         db_data["relationships"] = self._extract_relationships(context, db_data["tables"], project_language)
         db_data["er_diagram"] = self._generate_er_diagram(db_data["tables"], db_data["relationships"])
@@ -948,6 +955,7 @@ class DatabaseGenerator(BaseDocGenerator):
     def _extract_from_sql_files(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
         """从 SQL 文件提取表结构"""
         tables = []
+        seen_tables = set()
 
         for sql_file in context.project_path.rglob("*.sql"):
             if "node_modules" in str(sql_file) or "venv" in str(sql_file):
@@ -955,105 +963,419 @@ class DatabaseGenerator(BaseDocGenerator):
                 
             try:
                 content = sql_file.read_text(encoding="utf-8")
+                extracted_tables = self._parse_sql_create_tables(content)
                 
-                create_pattern = r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"']?(\w+)[`\"']?\s*\(([^)]+)\)"
-                matches = re.findall(create_pattern, content, re.IGNORECASE | re.DOTALL)
-
-                for table_name, columns_str in matches:
-                    table = {
-                        "name": table_name,
-                        "class_name": table_name,
-                        "description": "",
-                        "columns": [],
-                        "indexes": [],
-                        "primary_key": "",
-                        "foreign_keys": [],
-                    }
-
-                    columns = columns_str.split(",")
-                    for col_def in columns:
-                        col_def = col_def.strip()
-                        if not col_def:
-                            continue
-
-                        parts = col_def.split()
-                        if parts:
-                            col_name = parts[0].strip("`\"'")
-                            col_type = parts[1] if len(parts) > 1 else "UNKNOWN"
-                            
-                            column = {
-                                "name": col_name,
-                                "type": col_type,
-                                "constraints": " ".join(parts[2:]) if len(parts) > 2 else "",
-                                "description": "",
-                                "is_primary": "PRIMARY KEY" in col_def.upper(),
-                                "is_foreign": "FOREIGN KEY" in col_def.upper() or "REFERENCES" in col_def.upper(),
-                            }
-                            
-                            if column["is_primary"]:
-                                table["primary_key"] = col_name
-                            
-                            table["columns"].append(column)
-
-                    if table["columns"]:
+                for table in extracted_tables:
+                    if table["name"].lower() not in seen_tables:
+                        seen_tables.add(table["name"].lower())
                         tables.append(table)
             except Exception:
                 continue
 
         return tables
 
+    def _parse_sql_create_tables(self, content: str) -> list[dict[str, Any]]:
+        """解析 SQL 内容中的 CREATE TABLE 语句"""
+        tables = []
+        
+        create_pattern = r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"']?(\w+)[`\"']?\s*\("
+        matches = list(re.finditer(create_pattern, content, re.IGNORECASE))
+        
+        for i, match in enumerate(matches):
+            table_name = match.group(1)
+            start_pos = match.end()
+            
+            end_pos = self._find_closing_parenthesis(content, start_pos - 1)
+            if end_pos == -1:
+                continue
+                
+            columns_str = content[start_pos:end_pos]
+            
+            table = {
+                "name": table_name,
+                "class_name": table_name,
+                "description": "",
+                "columns": [],
+                "indexes": [],
+                "primary_key": "",
+                "foreign_keys": [],
+            }
+            
+            self._parse_column_definitions(columns_str, table)
+            
+            if table["columns"]:
+                tables.append(table)
+        
+        return tables
+
+    def _find_closing_parenthesis(self, content: str, start: int) -> int:
+        """找到匹配的闭合括号位置"""
+        depth = 0
+        i = start
+        
+        while i < len(content):
+            char = content[i]
+            if char == '(':
+                depth += 1
+            elif char == ')':
+                depth -= 1
+                if depth == 0:
+                    return i
+            i += 1
+        
+        return -1
+
+    def _parse_column_definitions(self, columns_str: str, table: dict) -> None:
+        """解析列定义"""
+        columns_str = columns_str.strip()
+        
+        definitions = self._split_column_definitions(columns_str)
+        
+        for col_def in definitions:
+            col_def = col_def.strip()
+            if not col_def:
+                continue
+            
+            col_def_upper = col_def.upper()
+            
+            if col_def_upper.startswith("PRIMARY KEY"):
+                self._parse_primary_key_constraint(col_def, table)
+                continue
+            
+            if col_def_upper.startswith("FOREIGN KEY"):
+                self._parse_foreign_key_constraint(col_def, table)
+                continue
+            
+            if col_def_upper.startswith("UNIQUE"):
+                continue
+            
+            if col_def_upper.startswith("INDEX") or col_def_upper.startswith("KEY "):
+                continue
+            
+            if col_def_upper.startswith("CHECK"):
+                continue
+            
+            if col_def_upper.startswith("CONSTRAINT"):
+                continue
+            
+            column = self._parse_single_column(col_def)
+            if column:
+                if column.get("is_primary"):
+                    table["primary_key"] = column["name"]
+                if column.get("is_foreign"):
+                    table["foreign_keys"].append(column["name"])
+                table["columns"].append(column)
+
+    def _split_column_definitions(self, columns_str: str) -> list[str]:
+        """智能分割列定义，处理嵌套括号"""
+        definitions = []
+        current = []
+        depth = 0
+        in_string = False
+        string_char = None
+        
+        for char in columns_str:
+            if char in ('"', "'") and (not in_string or char == string_char):
+                if in_string and current and current[-1] != '\\':
+                    in_string = False
+                    string_char = None
+                elif not in_string:
+                    in_string = True
+                    string_char = char
+                current.append(char)
+            elif in_string:
+                current.append(char)
+            elif char == '(':
+                depth += 1
+                current.append(char)
+            elif char == ')':
+                depth -= 1
+                current.append(char)
+            elif char == ',' and depth == 0:
+                definitions.append(''.join(current))
+                current = []
+            else:
+                current.append(char)
+        
+        if current:
+            definitions.append(''.join(current))
+        
+        return definitions
+
+    def _parse_single_column(self, col_def: str) -> Optional[dict[str, Any]]:
+        """解析单个列定义"""
+        col_def = col_def.strip()
+        if not col_def:
+            return None
+        
+        tokens = self._tokenize_column_def(col_def)
+        if not tokens:
+            return None
+        
+        col_name = tokens[0].strip("`\"'")
+        if not col_name or col_name.upper() in ("PRIMARY", "FOREIGN", "UNIQUE", "INDEX", "KEY", "CHECK", "CONSTRAINT"):
+            return None
+        
+        col_type = tokens[1] if len(tokens) > 1 else "UNKNOWN"
+        col_type = self._extract_complete_type(col_type, col_def)
+        
+        constraints = []
+        is_primary = False
+        is_foreign = False
+        description = ""
+        
+        col_def_upper = col_def.upper()
+        
+        if "PRIMARY KEY" in col_def_upper or "PRIMARYKEY" in col_def_upper:
+            constraints.append("PRIMARY KEY")
+            is_primary = True
+        
+        if "NOT NULL" in col_def_upper or "NOTNULL" in col_def_upper:
+            constraints.append("NOT NULL")
+        
+        if "UNIQUE" in col_def_upper and "PRIMARY KEY" not in col_def_upper:
+            constraints.append("UNIQUE")
+        
+        if "AUTO_INCREMENT" in col_def_upper or "AUTOINCREMENT" in col_def_upper or "IDENTITY" in col_def_upper:
+            constraints.append("AUTO_INCREMENT")
+        
+        if "DEFAULT" in col_def_upper:
+            default_match = re.search(r"DEFAULT\s+([^\s,]+(?:\s+[^,\s]+)?)", col_def, re.IGNORECASE)
+            if default_match:
+                constraints.append(f"DEFAULT {default_match.group(1)}")
+        
+        if "REFERENCES" in col_def_upper:
+            is_foreign = True
+            constraints.append("FOREIGN KEY")
+            ref_match = re.search(r"REFERENCES\s+(\w+)\s*\((\w+)\)", col_def, re.IGNORECASE)
+            if ref_match:
+                description = f"引用 {ref_match.group(1)}.{ref_match.group(2)}"
+        
+        if col_name.lower().endswith("_id") and col_name.lower() != "id":
+            is_foreign = True
+            if "FOREIGN KEY" not in constraints:
+                constraints.append("FOREIGN KEY")
+        
+        return {
+            "name": col_name,
+            "type": col_type,
+            "constraints": " ".join(dict.fromkeys(constraints)) if constraints else "",
+            "description": description,
+            "is_primary": is_primary,
+            "is_foreign": is_foreign,
+            "is_nullable": "NOT NULL" not in col_def_upper,
+        }
+
+    def _tokenize_column_def(self, col_def: str) -> list[str]:
+        """将列定义分割为 tokens"""
+        tokens = []
+        current = []
+        depth = 0
+        in_string = False
+        string_char = None
+        
+        for char in col_def:
+            if char in ('"', "'") and (not in_string or char == string_char):
+                if in_string and current and current[-1] != '\\':
+                    in_string = False
+                    string_char = None
+                elif not in_string:
+                    in_string = True
+                    string_char = char
+                current.append(char)
+            elif in_string:
+                current.append(char)
+            elif char == '(':
+                depth += 1
+                current.append(char)
+            elif char == ')':
+                depth -= 1
+                current.append(char)
+            elif char.isspace() and depth == 0:
+                if current:
+                    tokens.append(''.join(current))
+                    current = []
+            else:
+                current.append(char)
+        
+        if current:
+            tokens.append(''.join(current))
+        
+        return tokens
+
+    def _extract_complete_type(self, type_token: str, full_def: str) -> str:
+        """提取完整的数据类型"""
+        type_token = type_token.strip("`\"'")
+        
+        if '(' in type_token:
+            return type_token
+        
+        paren_pos = full_def.find('(')
+        if paren_pos == -1:
+            return type_token
+        
+        end_paren = self._find_closing_parenthesis(full_def, paren_pos)
+        if end_paren == -1:
+            return type_token
+        
+        type_with_params = full_def[:end_paren + 1]
+        type_start = type_with_params.lower().find(type_token.lower())
+        if type_start == -1:
+            return type_token
+        
+        return type_token + full_def[paren_pos:end_paren + 1]
+
+    def _parse_primary_key_constraint(self, col_def: str, table: dict) -> None:
+        """解析 PRIMARY KEY 约束"""
+        match = re.search(r"PRIMARY\s+KEY\s*\(([^)]+)\)", col_def, re.IGNORECASE)
+        if match:
+            pk_columns = [c.strip().strip("`\"'") for c in match.group(1).split(",")]
+            for pk_col in pk_columns:
+                for col in table["columns"]:
+                    if col["name"].lower() == pk_col.lower():
+                        col["is_primary"] = True
+                        col["constraints"] = (col["constraints"] + " PRIMARY KEY").strip()
+                        if not table["primary_key"]:
+                            table["primary_key"] = col["name"]
+                        break
+
+    def _parse_foreign_key_constraint(self, col_def: str, table: dict) -> None:
+        """解析 FOREIGN KEY 约束"""
+        match = re.search(
+            r"FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(\w+)\s*\(([^)]+)\)",
+            col_def, re.IGNORECASE
+        )
+        if match:
+            fk_columns = [c.strip().strip("`\"'") for c in match.group(1).split(",")]
+            ref_table = match.group(2)
+            ref_columns = [c.strip().strip("`\"'") for c in match.group(3).split(",")]
+            
+            for fk_col in fk_columns:
+                for col in table["columns"]:
+                    if col["name"].lower() == fk_col.lower():
+                        col["is_foreign"] = True
+                        col["constraints"] = (col["constraints"] + " FOREIGN KEY").strip()
+                        col["description"] = f"引用 {ref_table}.{ref_columns[0] if ref_columns else ''}"
+                        table["foreign_keys"].append(col["name"])
+                        break
+
     def _generate_er_diagram(self, tables: list[dict], relationships: list[dict]) -> str:
         """生成 E-R 图"""
         lines = ["erDiagram"]
 
-        for table in tables[:15]:
+        max_tables = 30
+        max_columns = 12
+
+        for table in tables[:max_tables]:
             table_name = table["name"]
             lines.append(f"    {table_name} {{")
-            for col in table["columns"][:6]:
-                col_type = col["type"].split("[")[0].split("(")[0][:15]
+            
+            columns = table.get("columns", [])
+            pk_columns = [c for c in columns if c.get("is_primary")]
+            fk_columns = [c for c in columns if c.get("is_foreign") and not c.get("is_primary")]
+            other_columns = [c for c in columns if not c.get("is_primary") and not c.get("is_foreign")]
+            
+            display_columns = pk_columns + fk_columns + other_columns
+            display_columns = display_columns[:max_columns]
+            
+            for col in display_columns:
+                col_type = col["type"]
+                col_type = col_type.split("[")[0]
+                col_type = col_type.split("(")[0] if "(" not in col_type else col_type[:col_type.find(")")+1] if col_type.find(")") != -1 else col_type.split("(")[0]
+                col_type = col_type[:20]
                 lines.append(f"        {col_type} {col['name']}")
             lines.append("    }")
 
-        for rel in relationships[:15]:
-            lines.append(f"    {rel['primary_table']} ||--o{{ {rel['foreign_table']} : {rel['foreign_key']}")
+        max_relationships = 40
+        for rel in relationships[:max_relationships]:
+            primary_table = rel.get("primary_table", "")
+            foreign_table = rel.get("foreign_table", "")
+            foreign_key = rel.get("foreign_key", "")
+            relation_type = rel.get("relation_type", "1:N")
+            
+            if not primary_table or not foreign_table:
+                continue
+                
+            if relation_type == "1:1":
+                rel_symbol = "||--||"
+            elif relation_type == "N:M":
+                rel_symbol = "}o--o{"
+            elif relation_type == "N:1":
+                rel_symbol = "}o--||"
+            else:
+                rel_symbol = "||--o{"
+            
+            lines.append(f"    {primary_table} {rel_symbol} {foreign_table} : {foreign_key}")
 
         return "\n".join(lines)
 
     def _extract_relationships(self, context: DocGeneratorContext, tables: list[dict], project_language: str) -> list[dict[str, str]]:
         """提取表关系"""
         relationships = []
+        seen_relationships = set()
+        
+        table_names = {t["name"].lower() for t in tables}
+        table_name_map = {t["name"].lower(): t["name"] for t in tables}
 
         for table in tables:
+            table_name = table["name"]
+            
             for col in table.get("columns", []):
-                if col.get("is_foreign") or (col["name"].lower().endswith("_id") and col["name"].lower() != "id"):
-                    foreign_table = col["name"][:-3] if col["name"].lower().endswith("_id") else col["name"]
-                    foreign_table = foreign_table.replace("_id", "").replace("Id", "")
+                if col.get("is_foreign"):
+                    col_name = col["name"]
+                    col_name_lower = col_name.lower()
                     
-                    relationships.append({
-                        "primary_table": foreign_table.capitalize(),
-                        "relation_type": "1:N",
-                        "foreign_table": table["name"],
-                        "foreign_key": col["name"],
-                    })
+                    foreign_table = None
+                    
+                    if col_name_lower.endswith("_id") and col_name_lower != "id":
+                        potential_table = col_name_lower[:-3]
+                        if potential_table in table_names:
+                            foreign_table = table_name_map[potential_table]
+                    
+                    if not foreign_table:
+                        desc = col.get("description", "")
+                        ref_match = re.search(r"引用\s+(\w+)\.?", desc)
+                        if ref_match:
+                            ref_name = ref_match.group(1).lower()
+                            if ref_name in table_names:
+                                foreign_table = table_name_map[ref_name]
+                    
+                    if foreign_table and foreign_table != table_name:
+                        rel_key = f"{foreign_table.lower()}->{table_name.lower()}:{col_name_lower}"
+                        if rel_key not in seen_relationships:
+                            seen_relationships.add(rel_key)
+                            relationships.append({
+                                "primary_table": foreign_table,
+                                "relation_type": "1:N",
+                                "foreign_table": table_name,
+                                "foreign_key": col_name,
+                            })
 
         if context.parse_result and context.parse_result.modules:
             for module in context.parse_result.modules:
                 for cls in module.classes:
+                    cls_name = cls.name
+                    
                     for prop in cls.properties:
                         name_lower = prop.name.lower()
                         
                         if name_lower.endswith("_id") and name_lower != "id":
-                            foreign_table = name_lower[:-3].capitalize()
+                            potential_table = name_lower[:-3]
                             
-                            if not any(r["foreign_key"] == prop.name for r in relationships):
-                                relationships.append({
-                                    "primary_table": foreign_table,
-                                    "relation_type": "1:N",
-                                    "foreign_table": cls.name,
-                                    "foreign_key": prop.name,
-                                })
+                            if potential_table in table_names:
+                                foreign_table = table_name_map[potential_table]
+                                rel_key = f"{potential_table}->{cls_name.lower()}:{name_lower}"
+                                
+                                if rel_key not in seen_relationships:
+                                    seen_relationships.add(rel_key)
+                                    relationships.append({
+                                        "primary_table": foreign_table,
+                                        "relation_type": "1:N",
+                                        "foreign_table": cls_name,
+                                        "foreign_key": prop.name,
+                                    })
 
-        return relationships[:30]
+        return relationships[:50]
 
     async def _enhance_with_llm(
         self,

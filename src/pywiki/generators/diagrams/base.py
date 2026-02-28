@@ -20,7 +20,40 @@ class BaseDiagramGenerator(ABC):
 
     def sanitize_id(self, name: str) -> str:
         """将名称转换为有效的 Mermaid ID"""
-        return name.replace(".", "_").replace("-", "_").replace(" ", "_")
+        import re
+        
+        if not name:
+            return "node"
+        
+        sanitized = name
+        
+        if re.match(r'^[A-Za-z]:[\\/]', sanitized) or sanitized.startswith('/') or sanitized.startswith('\\'):
+            parts = re.split(r'[\\/]', sanitized)
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                if len(meaningful_parts) > 3:
+                    sanitized = '_'.join(meaningful_parts[-3:])
+                else:
+                    sanitized = '_'.join(meaningful_parts)
+        
+        sanitized = re.sub(r'[\\/:]', '_', sanitized)
+        sanitized = sanitized.replace(".", "_").replace("-", "_").replace(" ", "_")
+        sanitized = sanitized.replace("(", "_").replace(")", "_")
+        sanitized = sanitized.replace("[", "_").replace("]", "_").replace("{", "_").replace("}", "_")
+        sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', sanitized)
+        
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        
+        sanitized = sanitized.strip("_")
+        
+        if not sanitized:
+            return "node"
+        
+        if sanitized[0].isdigit():
+            sanitized = "n_" + sanitized
+        
+        return sanitized[:50] if len(sanitized) > 50 else sanitized
 
     def sanitize_label(self, label: str) -> str:
         """清理标签中的特殊字符"""

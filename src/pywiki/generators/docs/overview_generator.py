@@ -16,6 +16,7 @@ from pywiki.generators.docs.base import (
 )
 from pywiki.config.models import Language
 from pywiki.monitor.logger import logger
+from pywiki.analysis.package_analyzer import PackageAnalyzer
 
 
 class OverviewGenerator(BaseDocGenerator):
@@ -23,6 +24,19 @@ class OverviewGenerator(BaseDocGenerator):
 
     doc_type = DocType.OVERVIEW
     template_name = "overview.md.j2"
+
+    THIRD_PARTY_PREFIXES = {
+        "org.", "com.", "io.", "net.", "javax.", "java.",
+        "liquibase.", "flowable.", "activiti.", "camunda.",
+        "springframework.", "hibernate.", "mybatis.", "apache.",
+        "lombok.", "slf4j.", "log4j.", "junit.", "mockito.",
+        "jackson.", "gson.", "fastjson.", "okhttp.",
+        "retrofit.", "feign.", "dubbo.", "nacos.", "sentinel.",
+        "sharding.", "druid.", "hikari.", "redis.", "mongodb.",
+        "elasticsearch.", "kafka.", "rabbitmq.", "zookeeper.",
+        "curator.", "netty.", "vertx.", "quarkus.", "micronaut.",
+        "jakarta.", "sun.", "jdk.", "oracle.", "ibm.",
+    }
 
     def __init__(
         self,
@@ -53,6 +67,7 @@ class OverviewGenerator(BaseDocGenerator):
                 modules=project_info.get("modules", []),
                 metadata=project_info.get("metadata", {}),
                 code_stats=project_info.get("code_stats", {}),
+                package_analysis=project_info.get("package_analysis", {}),
             )
 
             return self.create_result(
@@ -82,6 +97,7 @@ class OverviewGenerator(BaseDocGenerator):
             "modules": [],
             "metadata": {},
             "code_stats": {},
+            "package_analysis": {},
         }
 
         info["description"] = await self._extract_description(context)
@@ -91,6 +107,7 @@ class OverviewGenerator(BaseDocGenerator):
         info["modules"] = self._extract_modules(context)
         info["metadata"] = self._extract_metadata(context)
         info["code_stats"] = self._extract_code_stats(context)
+        info["package_analysis"] = self._extract_package_analysis(context)
 
         return info
 
@@ -311,6 +328,8 @@ class OverviewGenerator(BaseDocGenerator):
             
             languages = set()
             for module in context.parse_result.modules:
+                if self._is_third_party_module(module.name, context.project_name):
+                    continue
                 if hasattr(module, "file_path"):
                     ext = Path(module.file_path).suffix if module.file_path else ""
                     if ext:
@@ -329,8 +348,11 @@ class OverviewGenerator(BaseDocGenerator):
             return tech_stack
         
         import_counts: dict[str, int] = {}
+        project_language = context.project_language or context.detect_project_language()
         
         for module in context.parse_result.modules:
+            if self._is_third_party_module(module.name, context.project_name):
+                continue
             for imp in module.imports:
                 if imp.module.startswith("."):
                     continue
@@ -350,8 +372,20 @@ class OverviewGenerator(BaseDocGenerator):
             self.labels.get("config_tech", "Configuration"): ["dotenv", "pydantic_settings", "configparser", "convict"],
         }
         
+        python_only_libs = {"argparse", "click", "typer", "pytest", "unittest", "flask", "django", "fastapi", "pandas", "numpy"}
+        java_only_libs = {"spring", "junit", "mockito", "hibernate", "mybatis", "maven", "gradle", "log4j", "slf4j"}
+        ts_only_libs = {"express", "nestjs", "jest", "mocha", "typescript", "webpack", "vite"}
+        
         for module_name, count in import_counts.items():
             module_lower = module_name.lower()
+            
+            if project_language == "java" and module_lower in python_only_libs:
+                continue
+            if project_language == "python" and module_lower in java_only_libs:
+                continue
+            if project_language == "typescript" and module_lower in python_only_libs | java_only_libs:
+                continue
+            
             for category, keywords in categories.items():
                 if any(kw in module_lower for kw in keywords):
                     if category not in tech_stack:
@@ -436,7 +470,8 @@ class OverviewGenerator(BaseDocGenerator):
                         if any(kw in artifact_lower or kw in group_lower for kw in keywords):
                             if category not in tech_stack:
                                 tech_stack[category] = []
-                            tech_stack[category].append(artifact_id)
+                            if artifact_id not in tech_stack[category]:
+                                tech_stack[category].append(artifact_id)
                             break
 
             except Exception:
@@ -472,7 +507,8 @@ class OverviewGenerator(BaseDocGenerator):
                         if any(kw in artifact_lower or kw in group_lower for kw in keywords):
                             if category not in tech_stack:
                                 tech_stack[category] = []
-                            tech_stack[category].append(artifact_id)
+                            if artifact_id not in tech_stack[category]:
+                                tech_stack[category].append(artifact_id)
                             break
 
             except Exception:
@@ -527,15 +563,23 @@ class OverviewGenerator(BaseDocGenerator):
         if not context.parse_result or not context.parse_result.modules:
             return ""
 
-        modules = context.parse_result.modules[:15]
+        filtered_modules = [
+            m for m in context.parse_result.modules 
+            if not self._is_third_party_module(m.name, context.project_name)
+        ]
+        
+        if not filtered_modules:
+            return ""
+        
+        modules = filtered_modules[:15]
         
         lines = ["graph TB"]
         
         module_map = {}
         for module in modules:
-            safe_name = module.name.replace(".", "_").replace("-", "_")[:25]
+            safe_name = self._sanitize_id(module.name)
             module_map[module.name] = safe_name
-            display_name = module.name.split(".")[-1] if "." in module.name else module.name
+            display_name = self._extract_display_name(module.name)
             lines.append(f"    {safe_name}[{display_name}]")
 
         added_edges = set()
@@ -567,24 +611,111 @@ class OverviewGenerator(BaseDocGenerator):
 
         return "\n".join(lines)
 
+    def _sanitize_id(self, name: str) -> str:
+        """将名称转换为有效的 Mermaid ID"""
+        sanitized = name.replace("\\", "_").replace("/", "_")
+        sanitized = sanitized.replace(".", "_").replace("-", "_").replace(" ", "_")
+        sanitized = sanitized.replace(":", "_").replace("(", "_").replace(")", "_")
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        sanitized = sanitized.strip("_")
+        return sanitized[:25]
+
+    def _is_third_party_module(self, module_name: str, project_name: str) -> bool:
+        """判断是否为第三方库模块"""
+        module_lower = module_name.lower()
+        
+        for prefix in self.THIRD_PARTY_PREFIXES:
+            if module_lower.startswith(prefix):
+                return True
+        
+        if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
+            normalized = module_name.replace('\\', '/').lower()
+            project_prefix = project_name.replace('-', '_').replace('.', '_').lower()
+            parts = normalized.split('/')
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                first_meaningful = meaningful_parts[0].lower()
+                if first_meaningful in self.THIRD_PARTY_PREFIXES or first_meaningful in {
+                    'org', 'com', 'io', 'net', 'javax', 'java', 'liquibase', 'flowable'
+                }:
+                    return True
+            return False
+        
+        return False
+
     def _extract_modules(self, context: DocGeneratorContext) -> list[dict[str, str]]:
         """提取模块列表"""
+        project_language = context.project_language or context.detect_project_language()
+        
+        if project_language == "java":
+            java_modules = self._extract_java_modules_from_build(context)
+            if java_modules:
+                return java_modules
+        
         modules = []
         
         if context.parse_result and context.parse_result.modules:
             for module in context.parse_result.modules:
+                if self._is_third_party_module(module.name, context.project_name):
+                    continue
+                
                 class_count = len(module.classes) if module.classes else 0
                 func_count = len(module.functions) if module.functions else 0
                 
+                display_name = self._extract_display_name(module.name)
+                module_path = self._extract_module_path(module.name, context.project_name)
+                
                 modules.append({
-                    "name": module.name,
-                    "path": module.name.replace(".", "/"),
+                    "name": display_name,
+                    "full_name": module.name,
+                    "path": module_path,
                     "description": module.docstring.split("\n")[0] if module.docstring else "",
                     "class_count": class_count,
                     "func_count": func_count,
                 })
 
         return modules[:20]
+
+    def _extract_display_name(self, module_name: str) -> str:
+        """提取模块显示名称"""
+        if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
+            parts = re.split(r'[\\/]', module_name)
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                name = meaningful_parts[-1]
+                return name.replace('.py', '').replace('.java', '').replace('.ts', '')
+        
+        if '.' in module_name:
+            parts = module_name.split('.')
+            for i in range(len(parts) - 1, -1, -1):
+                if parts[i] and not parts[i].startswith('_'):
+                    return parts[i]
+            return parts[-1]
+        
+        return module_name
+
+    def _extract_module_path(self, module_name: str, project_name: str) -> str:
+        """提取模块路径（用于生成文档链接）"""
+        if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
+            normalized = module_name.replace('\\', '/')
+            parts = normalized.split('/')
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            
+            project_prefix = project_name.replace('-', '_').replace('.', '_').lower()
+            start_idx = 0
+            for i, part in enumerate(meaningful_parts):
+                if part.lower().replace('-', '_') == project_prefix or i == 0:
+                    start_idx = i
+                    break
+            
+            relevant_parts = meaningful_parts[start_idx:]
+            if relevant_parts:
+                name = relevant_parts[-1].replace('.py', '').replace('.java', '').replace('.ts', '')
+                return '/'.join(relevant_parts[:-1] + [name]) if len(relevant_parts) > 1 else name
+            return meaningful_parts[-1] if meaningful_parts else module_name
+        
+        return module_name.replace('.', '/')
 
     def _extract_code_stats(self, context: DocGeneratorContext) -> dict[str, Any]:
         """提取代码统计"""
@@ -723,6 +854,50 @@ class OverviewGenerator(BaseDocGenerator):
 
         return metadata
 
+    def _extract_package_analysis(self, context: DocGeneratorContext) -> dict[str, Any]:
+        """提取包分析数据"""
+        try:
+            analysis = context.get_package_analysis()
+            
+            summary = analysis.get("summary", {})
+            layers = analysis.get("layers", [])
+            layer_distribution = analysis.get("layer_distribution", {})
+            metrics = analysis.get("metrics", [])
+            
+            top_metrics = sorted(metrics, key=lambda m: m.get("coupling", 0), reverse=True)[:10]
+            
+            return {
+                "total_packages": summary.get("total_packages", 0),
+                "total_dependencies": summary.get("total_dependencies", 0),
+                "circular_dependency_count": summary.get("circular_dependency_count", 0),
+                "layer_violation_count": summary.get("layer_violation_count", 0),
+                "avg_stability": round(summary.get("avg_stability", 0), 3),
+                "avg_cohesion": round(summary.get("avg_cohesion", 0), 3),
+                "layers": [
+                    {
+                        "name": layer.get("name", ""),
+                        "package_count": len(layer.get("packages", [])),
+                        "description": layer.get("description", ""),
+                    }
+                    for layer in layers
+                ],
+                "layer_distribution": {
+                    k: len(v) for k, v in layer_distribution.items() if v
+                },
+                "top_packages_by_coupling": [
+                    {
+                        "package": m.get("package", ""),
+                        "coupling": m.get("coupling", 0),
+                        "stability": m.get("stability", 0),
+                        "cohesion": m.get("cohesion", 0),
+                    }
+                    for m in top_metrics
+                ],
+                "subpackages": analysis.get("subpackages", [])[:20],
+            }
+        except Exception:
+            return {}
+
     async def _enhance_with_llm(
         self,
         context: DocGeneratorContext,
@@ -733,6 +908,16 @@ class OverviewGenerator(BaseDocGenerator):
         enhanced = {}
         
         code_stats = project_info.get("code_stats", {})
+        project_language = context.project_language or context.detect_project_language()
+        
+        modules = project_info.get("modules", [])
+        module_names = [m.get("name", "").split(".")[-1] for m in modules[:10] if m.get("name")]
+        
+        tech_stack = project_info.get("tech_stack", {})
+        tech_stack_summary = []
+        for category, techs in tech_stack.items():
+            if techs:
+                tech_stack_summary.append(f"{category}: {', '.join(techs[:5])}")
         
         system_prompt = self._get_system_prompt()
         
@@ -742,11 +927,13 @@ class OverviewGenerator(BaseDocGenerator):
 
 # 项目数据
 - **项目名称**: {context.project_name}
+- **项目语言**: {project_language.upper()}
 - **模块数量**: {code_stats.get('total_modules', 0)}
 - **类数量**: {code_stats.get('total_classes', 0)}
 - **函数数量**: {code_stats.get('total_functions', 0)}
 - **异步函数**: {code_stats.get('async_functions', 0) + code_stats.get('async_methods', 0)}
-- **技术栈**: {json.dumps(project_info.get('tech_stack', {}), ensure_ascii=False)}
+- **主要模块**: {', '.join(module_names) if module_names else '无'}
+- **技术栈**: {chr(10).join('- ' + t for t in tech_stack_summary) if tech_stack_summary else '未检测到'}
 - **功能特性**: {json.dumps(project_info.get('features', []), ensure_ascii=False)}
 
 # 输出要求
@@ -766,6 +953,7 @@ class OverviewGenerator(BaseDocGenerator):
 - 技术特点需具体说明技术选型的理由
 - 设计理念需体现架构思想和最佳实践
 - 避免泛泛而谈，每部分都需有实质性内容
+- 必须基于项目语言({project_language.upper()})进行描述，不要错误地描述为其他语言
 
 请务必使用中文回答。"""
         else:
@@ -774,11 +962,13 @@ Analyze project information and generate a professional project overview documen
 
 # Project Data
 - **Project Name**: {context.project_name}
+- **Project Language**: {project_language.upper()}
 - **Module Count**: {code_stats.get('total_modules', 0)}
 - **Class Count**: {code_stats.get('total_classes', 0)}
 - **Function Count**: {code_stats.get('total_functions', 0)}
 - **Async Functions**: {code_stats.get('async_functions', 0) + code_stats.get('async_methods', 0)}
-- **Tech Stack**: {json.dumps(project_info.get('tech_stack', {}), ensure_ascii=False)}
+- **Main Modules**: {', '.join(module_names) if module_names else 'None'}
+- **Tech Stack**: {chr(10).join('- ' + t for t in tech_stack_summary) if tech_stack_summary else 'Not detected'}
 - **Features**: {json.dumps(project_info.get('features', []), ensure_ascii=False)}
 
 # Output Requirements
@@ -798,6 +988,7 @@ Please return the following fields in JSON format:
 - Technical characteristics should explain rationale for technology choices
 - Design philosophy should reflect architectural thinking and best practices
 - Avoid generalizations, each section should have substantive content
+- Must be based on the project language ({project_language.upper()}), do not incorrectly describe it as another language
 
 Please respond in English."""
 

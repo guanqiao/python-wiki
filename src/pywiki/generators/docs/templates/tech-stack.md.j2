@@ -3,55 +3,138 @@
 {% if summary %}
 ## {{ labels['overview'] }}
 
-{{ summary }}
+{% if summary.get('architecture_pattern') %}
+### {{ labels.get('architecture_pattern', '架构模式') }}
+{{ summary.architecture_pattern }}
+{% endif %}
+
+{% if summary.get('tech_maturity') %}
+### {{ labels.get('tech_maturity', '技术成熟度') }}
+{{ summary.tech_maturity }}
+{% endif %}
+
+### {{ labels.get('tech_summary', '技术概览') }}
+
+| {{ labels.get('metric', '指标') }} | {{ labels.get('value', '数值') }} |
+|------|------|
+| {{ labels.get('total_components', '技术组件总数') }} | {{ summary.get('total_components', 0) }} |
+| {{ labels.get('frameworks_count', '框架数量') }} | {{ summary.get('frameworks_count', 0) }} |
+| {{ labels.get('databases_count', '数据库数量') }} | {{ summary.get('databases_count', 0) }} |
+| {{ labels.get('libraries_count', '核心库数量') }} | {{ summary.get('libraries_count', 0) }} |
+| {{ labels.get('tools_count', '工具数量') }} | {{ summary.get('tools_count', 0) }} |
+{% if summary.get('primary_framework') %}
+| {{ labels.get('primary_framework', '主要框架') }} | {{ summary.primary_framework }} |
+{% endif %}
+{% if summary.get('primary_database') %}
+| {{ labels.get('primary_database', '主要数据库') }} | {{ summary.primary_database }} |
+{% endif %}
+
+{% if summary.get('import_analysis') %}
+### {{ labels.get('import_analysis', '导入分析') }}
+
+| {{ labels.get('metric', '指标') }} | {{ labels.get('value', '数值') }} |
+|------|------|
+| {{ labels.get('total_imports', '总导入数') }} | {{ summary.import_analysis.get('total_imports', 0) }} |
+| {{ labels.get('unique_modules', '独立模块数') }} | {{ summary.import_analysis.get('unique_modules', 0) }} |
+
+{% if summary.import_analysis.get('top_imports') %}
+**{{ labels.get('top_imports', '高频导入') }}**:
+{% for module, count in summary.import_analysis.top_imports[:5] %}
+- `{{ module }}` ({{ count }}次)
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if summary.get('potential_risks') %}
+### {{ labels.get('potential_risks', '潜在风险') }}
+{% for risk in summary.potential_risks %}
+- {{ risk }}
+{% endfor %}
+{% endif %}
+
+{% if summary.get('optimization_suggestions') %}
+### {{ labels.get('optimization_suggestions', '优化建议') }}
+{% for suggestion in summary.optimization_suggestions %}
+- {{ suggestion }}
+{% endfor %}
+{% endif %}
 {% endif %}
 
 {% if frameworks %}
 ## {{ labels['frameworks'] if labels.get('frameworks') else 'Frameworks' }}
 
-| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['version'] }} | {{ labels['description'] }} |
-|------|------|------|
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['version'] }} | {{ labels['description'] }} | {{ labels.get('usage_count', '使用次数') }} |
+|------|------|------|------|
 {% for fw in frameworks %}
-| {{ fw.name }} | {{ fw.version or '-' }} | {{ fw.description }} |
+| {{ fw.name }} | {{ fw.version or '-' }} | {{ fw.description }} | {{ fw.usage_count or '-' }} |
 {% endfor %}
 {% endif %}
 
 {% if databases %}
 ## {{ labels['databases'] if labels.get('databases') else 'Databases' }}
 
-| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['type'] if labels.get('type') else 'Type' }} | {{ labels['description'] }} |
-|------|------|------|
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['type'] if labels.get('type') else 'Type' }} | {{ labels['description'] }} | {{ labels.get('usage_count', '使用次数') }} |
+|------|------|------|------|
 {% for db in databases %}
-| {{ db.name }} | {{ db.type }} | {{ db.description }} |
+| {{ db.name }} | {{ db.type }} | {{ db.description }} | {{ db.usage_count or '-' }} |
 {% endfor %}
 {% endif %}
 
 {% if libraries %}
 ## {{ labels['core_libraries'] if labels.get('core_libraries') else 'Core Libraries' }}
 
-| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['category'] if labels.get('category') else 'Category' }} | {{ labels['version'] }} | {{ labels['description'] }} |
-|------|------|------|------|
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['category'] if labels.get('category') else 'Category' }} | {{ labels['version'] }} | {{ labels['description'] }} | {{ labels.get('usage_count', '使用次数') }} |
+|------|------|------|------|------|
 {% for lib in libraries %}
-| {{ lib.name }} | {{ lib.category }} | {{ lib.version or '-' }} | {{ lib.description }} |
+| {{ lib.name }} | {{ lib.category }} | {{ lib.version or '-' }} | {{ lib.description }} | {{ lib.usage_count or '-' }} |
 {% endfor %}
 {% endif %}
 
 {% if tools %}
 ## {{ labels['tools'] if labels.get('tools') else 'Tools' }}
 
-| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['category'] if labels.get('category') else 'Category' }} | {{ labels['description'] }} |
-|------|------|------|
+| {{ labels['name'] if labels.get('name') else 'Name' }} | {{ labels['category'] if labels.get('category') else 'Category' }} | {{ labels['description'] }} | {{ labels.get('usage_count', '使用次数') }} |
+|------|------|------|------|
 {% for tool in tools %}
-| {{ tool.name }} | {{ tool.category }} | {{ tool.description }} |
+| {{ tool.name }} | {{ tool.category }} | {{ tool.description }} | {{ tool.usage_count or '-' }} |
 {% endfor %}
 {% endif %}
 
 {% if language_stats %}
 ## {{ labels['language_distribution'] if labels.get('language_distribution') else 'Language Distribution' }}
 
-| {{ labels['language'] if labels.get('language') else 'Language' }} | {{ labels['files'] if labels.get('files') else 'Files' }} | {{ labels['percentage'] if labels.get('percentage') else 'Percentage' }} |
-|------|--------|------|
+| {{ labels['language'] if labels.get('language') else 'Language' }} | {{ labels['files'] if labels.get('files') else 'Files' }} | {{ labels.get('lines', '代码行数') }} | {{ labels['percentage'] if labels.get('percentage') else 'Percentage' }} |
+|------|--------|------|------|
 {% for lang, stat in language_stats.items() %}
-| {{ lang }} | {{ stat.files }} | {{ stat.percentage }}% |
+| {{ lang }} | {{ stat.files }} | {{ stat.get('lines', '-') }} | {{ stat.get('file_percentage', 0) }}% |
 {% endfor %}
+{% endif %}
+
+{% if code_metrics %}
+## {{ labels.get('code_metrics', '代码指标') }}
+
+| {{ labels.get('metric', '指标') }} | {{ labels.get('value', '数值') }} |
+|------|------|
+| {{ labels.get('total_modules', '模块总数') }} | {{ code_metrics.get('total_modules', 0) }} |
+| {{ labels.get('total_classes', '类总数') }} | {{ code_metrics.get('total_classes', 0) }} |
+| {{ labels.get('total_functions', '函数总数') }} | {{ code_metrics.get('total_functions', 0) }} |
+| {{ labels.get('total_methods', '方法总数') }} | {{ code_metrics.get('total_methods', 0) }} |
+| {{ labels.get('async_ratio', '异步比例') }} | {{ code_metrics.get('async_ratio', 0) }}% |
+| {{ labels.get('class_to_module_ratio', '类/模块比') }} | {{ code_metrics.get('class_to_module_ratio', 0) }} |
+| {{ labels.get('method_to_class_ratio', '方法/类比') }} | {{ code_metrics.get('method_to_class_ratio', 0) }} |
+{% if code_metrics.get('has_tests') %}
+| {{ labels.get('test_status', '测试状态') }} | {{ labels.get('has_tests', '已包含测试') }} ({{ code_metrics.get('test_coverage_estimate', '-') }}) |
+{% else %}
+| {{ labels.get('test_status', '测试状态') }} | {{ labels.get('no_tests', '未检测到测试') }} |
+{% endif %}
+{% endif %}
+
+{% if dependency_stats and dependency_stats.get('total', 0) > 0 %}
+## {{ labels.get('dependency_stats', '依赖统计') }}
+
+| {{ labels.get('type', '类型') }} | {{ labels.get('count', '数量') }} |
+|------|------|
+| {{ labels.get('production_deps', '生产依赖') }} | {{ dependency_stats.get('production', 0) }} |
+| {{ labels.get('development_deps', '开发依赖') }} | {{ dependency_stats.get('development', 0) }} |
+| {{ labels.get('total_deps', '总依赖数') }} | {{ dependency_stats.get('total', 0) }} |
 {% endif %}

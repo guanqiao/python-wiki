@@ -55,6 +55,9 @@ class DependenciesGenerator(BaseDocGenerator):
                 dependency_versions=dep_data.get("dependency_versions", {}),
                 recommendations=dep_data.get("recommendations", []),
                 summary=dep_data.get("summary", {}),
+                package_dependencies=dep_data.get("package_dependencies", []),
+                package_metrics=dep_data.get("package_metrics", []),
+                layer_violations=dep_data.get("layer_violations", []),
             )
 
             return self.create_result(
@@ -191,6 +194,25 @@ class DependenciesGenerator(BaseDocGenerator):
             dep_data["recommendations"] = report.get("recommendations", [])
             dep_data["summary"] = report.get("summary", {})
             
+        except Exception:
+            pass
+
+        try:
+            package_analysis = context.get_package_analysis()
+            dep_data["package_dependencies"] = package_analysis.get("dependencies", [])[:30]
+            dep_data["package_metrics"] = package_analysis.get("metrics", [])[:20]
+            dep_data["layer_violations"] = package_analysis.get("violations", [])
+            
+            pkg_circular = package_analysis.get("circular_dependencies", [])
+            if pkg_circular and not dep_data.get("circular"):
+                dep_data["circular"] = [
+                    {
+                        "cycle": cycle,
+                        "severity": "high" if len(cycle) <= 3 else "medium",
+                        "description": f"循环依赖: {' -> '.join(cycle)}",
+                    }
+                    for cycle in pkg_circular[:10]
+                ]
         except Exception:
             pass
 

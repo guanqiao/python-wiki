@@ -2,6 +2,7 @@
 文档预览面板
 """
 
+import shutil
 from typing import Optional, ClassVar
 from pathlib import Path
 import tempfile
@@ -369,6 +370,16 @@ class PreviewPanel(QWidget):
         
         PreviewPanel._mermaid_js_loaded = True
 
+    def _ensure_mermaid_js_in_temp_dir(self, temp_dir: str) -> str:
+        """确保 mermaid.min.js 在临时目录中"""
+        mermaid_dest = os.path.join(temp_dir, "mermaid.min.js")
+        if not os.path.exists(mermaid_dest) and MERMAID_JS_PATH.exists():
+            try:
+                shutil.copy(str(MERMAID_JS_PATH), mermaid_dest)
+            except Exception:
+                pass
+        return mermaid_dest
+
     def _load_document(self, doc_path: Path) -> None:
         """加载文档"""
         if not doc_path.exists():
@@ -387,9 +398,12 @@ class PreviewPanel(QWidget):
             except Exception:
                 pass
         
-        fd, self._temp_html_file = tempfile.mkstemp(suffix=".html", prefix="pywiki_preview_")
+        temp_dir = tempfile.mkdtemp(prefix="pywiki_preview_")
+        self._ensure_mermaid_js_in_temp_dir(temp_dir)
+        
+        self._temp_html_file = os.path.join(temp_dir, "preview.html")
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            with open(self._temp_html_file, 'w', encoding='utf-8') as f:
                 f.write(html)
         except Exception:
             self._temp_html_file = None

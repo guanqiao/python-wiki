@@ -38,6 +38,31 @@ class DocType(str, Enum):
     CODE_QUALITY = "code-quality"
     TECHNICAL_DESIGN_SPEC = "technical-design-spec"
 
+    @property
+    def dependencies(self) -> list["DocType"]:
+        """获取该文档类型的依赖（需要先生成的文档）"""
+        DOC_DEPENDENCIES: dict["DocType", list["DocType"]] = {
+            DocType.TECHNICAL_DESIGN_SPEC: [
+                DocType.OVERVIEW,
+                DocType.ARCHITECTURE,
+                DocType.API,
+                DocType.DEPENDENCIES,
+                DocType.TECH_STACK,
+            ],
+            DocType.CODE_QUALITY: [
+                DocType.MODULE,
+                DocType.ARCHITECTURE,
+            ],
+            DocType.TEST_COVERAGE: [
+                DocType.MODULE,
+            ],
+            DocType.IMPLICIT_KNOWLEDGE: [
+                DocType.MODULE,
+                DocType.ARCHITECTURE,
+            ],
+        }
+        return DOC_DEPENDENCIES.get(self, [])
+
 
 @dataclass
 class DocGeneratorResult:
@@ -72,6 +97,8 @@ class DocGeneratorContext:
     template_dir: Optional[Path] = None
     metadata: dict[str, Any] = field(default_factory=dict)
     project_language: str = "python"
+    package_analysis: Optional[dict[str, Any]] = None
+    _package_analyzer: Any = field(default=None, repr=False)
 
     def detect_project_language(self) -> str:
         """检测项目主要编程语言"""
@@ -147,6 +174,18 @@ class DocGeneratorContext:
             return "python"
         
         return max(language_scores.items(), key=lambda x: x[1])[0]
+
+    def get_package_analysis(self) -> dict[str, Any]:
+        """获取包分析结果（按需计算并缓存）"""
+        if self.package_analysis is not None:
+            return self.package_analysis
+        
+        if self._package_analyzer is None:
+            from pywiki.analysis.package_analyzer import PackageAnalyzer
+            self._package_analyzer = PackageAnalyzer()
+        
+        self.package_analysis = self._package_analyzer.get_full_analysis(self.project_path)
+        return self.package_analysis
 
     def get_output_path(self, doc_type: DocType) -> Path:
         """获取文档输出路径"""

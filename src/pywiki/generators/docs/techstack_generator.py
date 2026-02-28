@@ -134,7 +134,7 @@ class TechStackGenerator(BaseDocGenerator):
                         analysis.frameworks.append(component)
                     elif component.category.value == "database":
                         analysis.databases.append(component)
-                    elif component.category.value in ("orm", "validation", "http_client"):
+                    elif component.category.value in ("orm", "validation", "http_client", "frontend", "ui_library", "state_management"):
                         analysis.libraries.append(component)
                     else:
                         analysis.tools.append(component)
@@ -157,6 +157,17 @@ class TechStackGenerator(BaseDocGenerator):
             "TypeScript": [".ts", ".tsx"],
             "JavaScript": [".js", ".jsx", ".mjs"],
             "Java": [".java"],
+            "Kotlin": [".kt", ".kts"],
+            "Go": [".go"],
+            "Rust": [".rs"],
+            "C": [".c", ".h"],
+            "C++": [".cpp", ".hpp", ".cc", ".cxx"],
+            "C#": [".cs"],
+            "Ruby": [".rb"],
+            "PHP": [".php"],
+            "Swift": [".swift"],
+            "Objective-C": [".m", ".mm"],
+            "Scala": [".scala"],
             "Markdown": [".md"],
             "YAML": [".yml", ".yaml"],
             "JSON": [".json"],
@@ -164,9 +175,11 @@ class TechStackGenerator(BaseDocGenerator):
             "CSS": [".css", ".scss", ".sass", ".less"],
             "Shell": [".sh", ".bash", ".zsh"],
             "SQL": [".sql"],
+            "Vue": [".vue"],
+            "Svelte": [".svelte"],
         }
 
-        exclude_dirs = {"__pycache__", "node_modules", ".git", ".venv", "venv", "dist", "build", ".mypy_cache"}
+        exclude_dirs = {"__pycache__", "node_modules", ".git", ".venv", "venv", "dist", "build", ".mypy_cache", "target", ".gradle", ".idea", ".vscode", "out", "bin", "obj"}
 
         for lang, extensions in lang_extensions.items():
             file_count = 0
@@ -206,7 +219,8 @@ class TechStackGenerator(BaseDocGenerator):
                 else:
                     stats[lang] = data
 
-        return stats
+        sorted_stats = dict(sorted(stats.items(), key=lambda x: x[1].get("files", 0), reverse=True))
+        return sorted_stats
 
     def _extract_code_language_stats(self, context: DocGeneratorContext) -> dict[str, dict[str, Any]]:
         """从解析结果提取代码语言统计"""
@@ -306,6 +320,19 @@ class TechStackGenerator(BaseDocGenerator):
                 stats["total"] = stats["production"]
             except Exception:
                 pass
+
+        pom_path = context.project_path / "pom.xml"
+        if pom_path.exists() and stats["total"] == 0:
+            try:
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(pom_path)
+                root = tree.getroot()
+                ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
+                deps = root.findall('.//m:dependency', ns)
+                stats["production"] = len(deps)
+                stats["total"] = stats["production"]
+            except Exception:
+                pass
         
         return stats
 
@@ -379,47 +406,97 @@ class TechStackGenerator(BaseDocGenerator):
     ) -> Optional[TechStackAnalysis]:
         """使用 LLM 增强技术栈分析"""
 
+        framework_names = [f.name for f in analysis.frameworks]
+        database_names = [d.name for d in analysis.databases]
+        library_names = [l.name for l in analysis.libraries[:10]]
+        tool_names = [t.name for t in analysis.tools[:5]]
+        
+        language_stats = self._calculate_language_stats(context)
+        primary_languages = list(language_stats.keys())[:3] if language_stats else ["Unknown"]
+
         if self.language == Language.ZH:
-            prompt = f"""基于以下技术栈分析，提供更深入的见解：
+            prompt = f"""基于以下技术栈分析数据，提供深入的架构洞察和专业建议。
 
-项目: {context.project_name}
-框架: {[f.name for f in analysis.frameworks]}
-数据库: {[d.name for d in analysis.databases]}
-核心库: {[l.name for l in analysis.libraries[:5]]}
+# 项目信息
+- **项目名称**: {context.project_name}
+- **主要编程语言**: {', '.join(primary_languages)}
 
-请分析并返回 JSON：
+# 技术栈分析
+- **框架**: {', '.join(framework_names) if framework_names else '未检测到'}
+- **数据库**: {', '.join(database_names) if database_names else '未检测到'}
+- **核心库**: {', '.join(library_names) if library_names else '未检测到'}
+- **工具**: {', '.join(tool_names) if tool_names else '未检测到'}
+
+# 统计数据
+- **技术组件总数**: {analysis.summary.get('total_components', 0)}
+- **框架数量**: {analysis.summary.get('frameworks_count', 0)}
+- **数据库数量**: {analysis.summary.get('databases_count', 0)}
+- **核心库数量**: {analysis.summary.get('libraries_count', 0)}
+
+# 输出要求
+请以 JSON 格式返回以下字段（不要输出 markdown 代码块，直接输出 JSON）：
 {{
-    "architecture_pattern": "架构模式（如 MVC、微服务等）",
-    "tech_maturity": "技术成熟度评估",
-    "potential_risks": ["风险1", "风险2"],
-    "optimization_suggestions": ["优化建议1", "优化建议2"]
+    "architecture_pattern": "架构模式描述（如分层架构、微服务架构、前后端分离等，需说明判断依据和技术特点，100-200字）",
+    "tech_maturity": "技术成熟度评估（分析技术栈的稳定性、社区活跃度、企业采用率等，100-150字）",
+    "potential_risks": ["风险1（具体描述风险内容和可能影响）", "风险2", "风险3"],
+    "optimization_suggestions": ["优化建议1（具体可执行的建议）", "优化建议2", "优化建议3"]
 }}
 
-请务必使用中文回答。"""
+# 质量标准
+- 架构模式判断需基于检测到的技术栈特征
+- 风险分析需具体，避免空泛表述
+- 优化建议需可执行，有针对性
+- 所有描述需专业、准确、有价值
+
+请务必使用中文回答，直接输出 JSON 格式，不要包含 markdown 代码块标记。"""
         else:
-            prompt = f"""Based on the following tech stack analysis, provide deeper insights:
+            prompt = f"""Based on the following tech stack analysis data, provide in-depth architectural insights and professional recommendations.
 
-Project: {context.project_name}
-Frameworks: {[f.name for f in analysis.frameworks]}
-Databases: {[d.name for d in analysis.databases]}
-Core Libraries: {[l.name for l in analysis.libraries[:5]]}
+# Project Information
+- **Project Name**: {context.project_name}
+- **Primary Languages**: {', '.join(primary_languages)}
 
-Please analyze and return JSON:
+# Tech Stack Analysis
+- **Frameworks**: {', '.join(framework_names) if framework_names else 'Not detected'}
+- **Databases**: {', '.join(database_names) if database_names else 'Not detected'}
+- **Core Libraries**: {', '.join(library_names) if library_names else 'Not detected'}
+- **Tools**: {', '.join(tool_names) if tool_names else 'Not detected'}
+
+# Statistics
+- **Total Components**: {analysis.summary.get('total_components', 0)}
+- **Frameworks Count**: {analysis.summary.get('frameworks_count', 0)}
+- **Databases Count**: {analysis.summary.get('databases_count', 0)}
+- **Libraries Count**: {analysis.summary.get('libraries_count', 0)}
+
+# Output Requirements
+Please return the following fields in JSON format (do not output markdown code blocks, output JSON directly):
 {{
-    "architecture_pattern": "Architecture pattern (e.g., MVC, microservices)",
-    "tech_maturity": "Technology maturity assessment",
-    "potential_risks": ["risk1", "risk2"],
-    "optimization_suggestions": ["suggestion1", "suggestion2"]
+    "architecture_pattern": "Architecture pattern description (e.g., layered, microservices, frontend-backend separation, with reasoning and technical characteristics, 100-200 words)",
+    "tech_maturity": "Technology maturity assessment (analyze stability, community activity, enterprise adoption rate, 100-150 words)",
+    "potential_risks": ["risk 1 (specific description of risk and potential impact)", "risk 2", "risk 3"],
+    "optimization_suggestions": ["suggestion 1 (actionable recommendation)", "suggestion 2", "suggestion 3"]
 }}
 
-Please respond in English."""
+# Quality Standards
+- Architecture pattern should be determined based on detected tech stack features
+- Risk analysis should be specific, avoid vague statements
+- Optimization suggestions should be actionable and targeted
+- All descriptions should be professional, accurate, and valuable
+
+Please respond in English, output JSON format directly, do not include markdown code block markers."""
 
         try:
             response = await llm_client.agenerate(prompt)
-            start = response.find("{")
-            end = response.rfind("}")
+            
+            json_str = response.strip()
+            if json_str.startswith("```"):
+                lines = json_str.split("\n")
+                json_str = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+            
+            start = json_str.find("{")
+            end = json_str.rfind("}")
             if start != -1 and end != -1:
-                insights = json.loads(response[start:end+1])
+                insights = json.loads(json_str[start:end+1])
                 
                 if insights.get("architecture_pattern"):
                     analysis.summary["architecture_pattern"] = insights["architecture_pattern"]

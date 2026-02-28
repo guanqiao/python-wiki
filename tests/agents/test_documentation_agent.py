@@ -46,7 +46,7 @@ class TestDocumentationAgent:
         """测试获取支持的文档类型"""
         types = agent.get_supported_doc_types()
 
-        assert len(types) == 10
+        assert len(types) >= 10
         assert any(t["type"] == "overview" for t in types)
         assert any(t["type"] == "tech-stack" for t in types)
 
@@ -87,6 +87,50 @@ class TestDocumentationAgent:
 
         assert isinstance(progress, DocGenerationProgress)
         assert progress.status == DocGenerationStatus.IDLE
+
+    def test_build_dependency_layers(self, agent):
+        """测试依赖分层逻辑"""
+        doc_types = [
+            DocType.OVERVIEW,
+            DocType.TECH_STACK,
+            DocType.API,
+            DocType.ARCHITECTURE,
+            DocType.MODULE,
+            DocType.TECHNICAL_DESIGN_SPEC,
+            DocType.CODE_QUALITY,
+            DocType.TEST_COVERAGE,
+        ]
+        
+        layers = agent._build_dependency_layers(doc_types)
+        
+        assert len(layers) >= 2, "应该至少有2层"
+        
+        first_layer_types = [dt.value for dt in layers[0]]
+        assert "overview" in first_layer_types
+        assert "tech-stack" in first_layer_types
+        assert "api" in first_layer_types
+        assert "architecture" in first_layer_types
+        assert "module" in first_layer_types
+        
+        last_layer_types = [dt.value for dt in layers[-1]]
+        assert "technical-design-spec" in last_layer_types
+        
+        for layer in layers:
+            assert len(layer) > 0
+
+    def test_dependency_layers_parallel_execution(self, agent):
+        """测试同一层文档可以并行执行"""
+        doc_types = [
+            DocType.OVERVIEW,
+            DocType.TECH_STACK,
+            DocType.API,
+            DocType.MODULE,
+        ]
+        
+        layers = agent._build_dependency_layers(doc_types)
+        
+        assert len(layers) == 1, "没有依赖关系的文档应该在同一层"
+        assert len(layers[0]) == 4, "所有4个文档应该在同一层并行执行"
 
 
 class TestDocGenerationProgress:

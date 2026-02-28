@@ -736,18 +736,19 @@ class ArchitectureAgent(BaseAgent):
         
         for insight in insights:
             if isinstance(insight, dict):
+                severity = insight.get("severity", "medium")
                 recommendations.append({
                     "title": insight.get("title", ""),
                     "description": insight.get("description", ""),
-                    "severity": insight.get("severity", "low"),
+                    "priority": severity,
                     "suggestions": insight.get("suggestions", []),
                 })
             else:
                 recommendations.append({
                     "title": insight.title,
                     "description": insight.description,
-                    "severity": insight.severity,
-                    "suggestions": insight.suggestions,
+                    "priority": insight.severity if hasattr(insight, 'severity') else "medium",
+                    "suggestions": insight.suggestions if hasattr(insight, 'suggestions') else [],
                 })
         
         return recommendations

@@ -32,6 +32,37 @@
 ```
 {% endif %}
 
+{% if package_analysis and package_analysis.total_packages > 0 %}
+## 包结构概览
+
+| 指标 | 数值 |
+|------|------|
+| 子包数量 | {{ package_analysis.total_packages }} |
+| 包间依赖 | {{ package_analysis.total_dependencies }} |
+| 循环依赖 | {{ package_analysis.circular_dependency_count }} |
+| 层级违规 | {{ package_analysis.layer_violation_count }} |
+| 平均稳定性 | {{ package_analysis.avg_stability }} |
+| 平均内聚性 | {{ package_analysis.avg_cohesion }} |
+
+{% if package_analysis.layers %}
+### 架构分层
+
+| 层级 | 包数量 | 描述 |
+|------|--------|------|
+{% for layer in package_analysis.layers %}
+| {{ layer.name }} | {{ layer.package_count }} | {{ layer.description }} |
+{% endfor %}
+{% endif %}
+
+{% if package_analysis.layer_distribution %}
+### 层级分布
+
+{% for layer, count in package_analysis.layer_distribution.items() %}
+- **{{ layer }}**: {{ count }} 个包
+{% endfor %}
+{% endif %}
+{% endif %}
+
 {% if modules %}
 ## {{ labels['modules'] }}
 

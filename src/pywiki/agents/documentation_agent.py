@@ -21,6 +21,7 @@ from pywiki.generators.docs.module_generator import ModuleGenerator
 from pywiki.generators.docs.dependencies_generator import DependenciesGenerator
 from pywiki.generators.docs.config_generator import ConfigGenerator
 from pywiki.generators.docs.development_generator import DevelopmentGenerator
+from pywiki.generators.docs.deployment_generator import DeploymentGenerator
 from pywiki.generators.docs.database_generator import DatabaseGenerator
 from pywiki.generators.docs.tsd_generator import TSDGenerator
 from pywiki.generators.docs.implicit_knowledge_generator import ImplicitKnowledgeGenerator
@@ -296,7 +297,12 @@ Please respond in English."""
         llm_client: Any,
         incremental: bool = False,
     ) -> DocGenerationResult:
-        """并发生成所有文档"""
+        """依赖感知的并发生成所有文档
+        
+        根据文档间的依赖关系分层并行执行：
+        - 每层内的文档并行执行
+        - 层与层之间串行（等待依赖完成）
+        """
         start_time = time.time()
         result = DocGenerationResult(success=True)
         
@@ -306,6 +312,10 @@ Please respond in English."""
         logger.info(f"开始批量生成文档: 类型数={len(doc_types)}, 并发数={self._max_concurrent}, 输出路径={output_path}")
         generators = self._get_generators(language)
 
+        layers = self._build_dependency_layers(doc_types)
+        logger.info(f"文档生成分层: {[[d.value for d in layer] for layer in layers]}")
+
+        completed_docs: set[DocType] = set()
         semaphore = asyncio.Semaphore(self._max_concurrent)
 
         async def generate_with_semaphore(doc_type: DocType) -> tuple[DocType, Optional[Path], Optional[str], bool]:
@@ -322,29 +332,35 @@ Please respond in English."""
                     doc_type, generator, context, output_path, language, llm_client, incremental
                 )
 
-        tasks = [generate_with_semaphore(doc_type) for doc_type in doc_types]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for i, res in enumerate(results):
-            doc_type = doc_types[i]
-            if isinstance(res, Exception):
-                result.failed_docs.append(doc_type.value)
-                self._progress.errors.append(f"{doc_type.value}: {str(res)}")
-                logger.error(f"文档生成异常: {doc_type.value} - {res}")
-            else:
-                doc_type_result, file_path, error, skipped = res
-                if file_path:
-                    if skipped:
-                        result.skipped_docs.append(doc_type_result.value)
-                    else:
-                        result.generated_files.append(file_path)
-                    self._progress.completed_docs.append(doc_type_result.value)
-                else:
-                    result.failed_docs.append(doc_type_result.value)
-                    if error:
-                        self._progress.errors.append(f"{doc_type_result.value}: {error}")
+        for layer_idx, layer in enumerate(layers):
+            logger.info(f"开始执行第 {layer_idx + 1} 层文档生成: {[d.value for d in layer]}")
             
-            self._notify_progress()
+            tasks = [generate_with_semaphore(doc_type) for doc_type in layer]
+            layer_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for i, res in enumerate(layer_results):
+                doc_type = layer[i]
+                if isinstance(res, Exception):
+                    result.failed_docs.append(doc_type.value)
+                    self._progress.errors.append(f"{doc_type.value}: {str(res)}")
+                    logger.error(f"文档生成异常: {doc_type.value} - {res}")
+                else:
+                    doc_type_result, file_path, error, skipped = res
+                    if file_path:
+                        if skipped:
+                            result.skipped_docs.append(doc_type_result.value)
+                        else:
+                            result.generated_files.append(file_path)
+                        self._progress.completed_docs.append(doc_type_result.value)
+                        completed_docs.add(doc_type_result)
+                    else:
+                        result.failed_docs.append(doc_type_result.value)
+                        if error:
+                            self._progress.errors.append(f"{doc_type_result.value}: {error}")
+                
+                self._notify_progress()
+
+            logger.info(f"第 {layer_idx + 1} 层文档生成完成: 已完成={len(completed_docs)}/{len(doc_types)}")
 
         result.success = len(result.generated_files) > 0 or len(result.skipped_docs) > 0
         duration_ms = (time.time() - start_time) * 1000
@@ -354,6 +370,47 @@ Please respond in English."""
             f"总耗时={duration_ms:.0f}ms"
         )
         return result
+
+    def _build_dependency_layers(self, doc_types: list[DocType]) -> list[list[DocType]]:
+        """构建依赖分层
+        
+        使用拓扑排序将文档按依赖关系分层：
+        - 第 0 层：没有依赖的文档
+        - 第 N 层：依赖第 N-1 层文档的文档
+        
+        Returns:
+            分层后的文档列表，每层内的文档可以并行执行
+        """
+        doc_set = set(doc_types)
+        
+        in_degree: dict[DocType, int] = {dt: 0 for dt in doc_types}
+        for dt in doc_types:
+            for dep in dt.dependencies:
+                if dep in doc_set:
+                    in_degree[dt] += 1
+        
+        layers: list[list[DocType]] = []
+        remaining = set(doc_types)
+        
+        while remaining:
+            current_layer = [
+                dt for dt in remaining
+                if in_degree[dt] == 0
+            ]
+            
+            if not current_layer:
+                logger.warning(f"检测到循环依赖，剩余文档: {[dt.value for dt in remaining]}")
+                current_layer = list(remaining)
+            
+            layers.append(current_layer)
+            
+            for dt in current_layer:
+                remaining.remove(dt)
+                for other_dt in remaining:
+                    if dt in other_dt.dependencies:
+                        in_degree[other_dt] -= 1
+        
+        return layers
 
     def _get_generators(self, language: Language) -> dict[DocType, Any]:
         """获取文档生成器"""
@@ -366,6 +423,7 @@ Please respond in English."""
             DocType.DEPENDENCIES: DependenciesGenerator(language=language),
             DocType.CONFIGURATION: ConfigGenerator(language=language),
             DocType.DEVELOPMENT: DevelopmentGenerator(language=language),
+            DocType.DEPLOYMENT: DeploymentGenerator(language=language),
             DocType.DATABASE: DatabaseGenerator(language=language),
             DocType.TSD: TSDGenerator(language=language),
             DocType.IMPLICIT_KNOWLEDGE: ImplicitKnowledgeGenerator(language=language),
@@ -446,6 +504,7 @@ Please respond in English."""
             {"type": DocType.DEPENDENCIES.value, "description": "依赖文档"},
             {"type": DocType.CONFIGURATION.value, "description": "配置文档"},
             {"type": DocType.DEVELOPMENT.value, "description": "开发指南"},
+            {"type": DocType.DEPLOYMENT.value, "description": "部署指南"},
             {"type": DocType.DATABASE.value, "description": "数据库文档"},
             {"type": DocType.TSD.value, "description": "技术设计文档"},
             {"type": DocType.IMPLICIT_KNOWLEDGE.value, "description": "隐性知识文档"},

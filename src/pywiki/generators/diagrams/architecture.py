@@ -259,6 +259,9 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
 
         for module in modules:
             module_name = module.name if hasattr(module, "name") else str(module)
+            
+            module_display_name = self._extract_display_name(module_name)
+            
             layer = self._detect_layer_for_module(module_name)
             module_layer_map[module_name] = layer
 
@@ -267,7 +270,7 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
 
             component = {
                 "id": comp_id,
-                "name": module_name.split(".")[-1],
+                "name": module_display_name,
                 "type": comp_type.value if isinstance(comp_type, ComponentType) else comp_type,
                 "layer": layer,
                 "description": module.docstring[:50] if hasattr(module, "docstring") and module.docstring else "",
@@ -304,6 +307,21 @@ class ArchitectureDiagramGenerator(BaseDiagramGenerator):
         }
 
         return self.generate(data, title or f"{project_name} Architecture")
+
+    def _extract_display_name(self, module_name: str) -> str:
+        """从模块名提取显示名称，处理路径格式"""
+        import re
+        
+        if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
+            parts = re.split(r'[\\/]', module_name)
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                return meaningful_parts[-1].replace('.py', '').replace('.java', '').replace('.ts', '')
+        
+        if '.' in module_name:
+            return module_name.split('.')[-1]
+        
+        return module_name
 
     def _detect_layer_for_module(self, module_name: str) -> str:
         """检测模块所属层级"""

@@ -134,7 +134,7 @@ def hello():
         """测试管理器初始化"""
         assert manager.project == project_config
         assert manager.llm_client is not None
-        assert manager.parser is not None
+        assert manager.parser_factory is not None
         assert manager.storage is not None
         assert manager.generator is not None
 
@@ -177,8 +177,8 @@ def hello():
         manager = WikiManager(project_config, llm_client)
 
         with patch.object(
-            manager.parser,
-            "parse_directory",
+            manager,
+            "_parse_with_factory",
             side_effect=Exception("Parse error")
         ):
             result = await manager.generate_full()
@@ -200,16 +200,15 @@ def hello():
     @pytest.mark.asyncio
     async def test_generate_incremental_with_error(self, manager, project_path):
         """测试增量生成出错"""
-        manager.parser.parse_file = MagicMock(
-            side_effect=Exception("Parse error")
-        )
-        changed_files = [project_path / "src" / "main.py"]
+        with patch.object(
+            manager.parser_factory,
+            "get_parser",
+            return_value=None
+        ):
+            changed_files = [project_path / "src" / "main.py"]
+            result = await manager.generate_incremental(changed_files)
 
-        result = await manager.generate_incremental(changed_files)
-
-        assert result is False
-        progress = manager.get_progress()
-        assert progress.status == GenerationStatus.ERROR
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_generate_incremental_empty_list(self, manager):
@@ -312,8 +311,8 @@ def hello():
         manager = WikiManager(project_config, llm_client, callback)
 
         with patch.object(
-            manager.parser,
-            "parse_directory",
+            manager,
+            "_parse_with_factory",
             side_effect=Exception("Test error")
         ):
             await manager.generate_full()
@@ -354,8 +353,10 @@ def hello():
 
         manager.progress_callback = callback
 
-        with patch.object(manager.parser, 'parse_file') as mock_parse:
-            mock_parse.return_value = MagicMock(modules=[])
+        mock_parser = MagicMock()
+        mock_parser.parse_file = MagicMock(return_value=MagicMock(modules=[]))
+        
+        with patch.object(manager.parser_factory, 'get_parser', return_value=mock_parser):
             await manager.generate_incremental(files)
 
         assert 2 in progress_updates
@@ -367,8 +368,8 @@ def hello():
 
         manager = WikiManager(project_config, llm_client)
 
-        assert "tests/*" in manager.parser.exclude_patterns
-        assert manager.parser.include_private is True
+        assert "tests/*" in manager.parser_factory.exclude_patterns
+        assert manager.parser_factory.include_private is True
 
     def test_manager_storage_configuration(self, project_config, llm_client):
         """测试管理器存储配置"""

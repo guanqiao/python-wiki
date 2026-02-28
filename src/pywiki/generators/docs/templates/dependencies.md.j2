@@ -6,6 +6,17 @@
 {{ description }}
 {% endif %}
 
+{% if summary %}
+## 依赖概览
+
+| 指标 | 数值 |
+|------|------|
+| 外部依赖 | {{ summary.get('total_external', 0) }} |
+| 内部依赖 | {{ summary.get('total_internal', 0) }} |
+| 循环依赖 | {{ summary.get('total_circular', 0) }} |
+| 热点模块 | {{ summary.get('total_hot_spots', 0) }} |
+{% endif %}
+
 {% if external %}
 ## {{ labels['external_dependencies'] }}
 
@@ -26,18 +37,41 @@
 {% endfor %}
 {% endif %}
 
+{% if package_dependencies %}
+## 包间依赖
+
+| 源包 | 目标包 | 强度 |
+|------|--------|------|
+{% for dep in package_dependencies %}
+| {{ dep.source }} | {{ dep.target }} | {{ dep.strength | round(2) }} |
+{% endfor %}
+{% endif %}
+
 {% if circular %}
 ## 循环依赖
 
 {% if circular | length > 0 %}
 ⚠️ 发现 {{ circular | length }} 个循环依赖:
 
-{% for cycle in circular %}
-- {{ cycle | join(' → ') }}
+{% for item in circular %}
+- **{{ item.description }}** (严重程度: {{ item.severity }})
+  - 路径: {{ item.cycle | join(' → ') }}
 {% endfor %}
 {% else %}
 ✅ 无循环依赖
 {% endif %}
+{% endif %}
+
+{% if layer_violations %}
+## 层级违规
+
+⚠️ 发现 {{ layer_violations | length }} 个层级违规:
+
+| 源包 | 源层级 | 目标模块 | 目标层级 |
+|------|--------|----------|----------|
+{% for violation in layer_violations %}
+| {{ violation.source_package }} | {{ violation.source_layer }} | {{ violation.target_module }} | {{ violation.target_layer }} |
+{% endfor %}
 {% endif %}
 
 {% if hot_spots %}
@@ -47,6 +81,16 @@
 |------|-----------|----------|
 {% for spot in hot_spots %}
 | {{ spot.module }} | {{ spot.count }} | {{ spot.risk }} |
+{% endfor %}
+{% endif %}
+
+{% if package_metrics %}
+## 包指标
+
+| 包 | 稳定性 | 抽象度 | 耦合度 | 内聚性 |
+|----|--------|--------|--------|--------|
+{% for metric in package_metrics %}
+| {{ metric.package }} | {{ metric.stability | round(2) }} | {{ metric.abstractness | round(2) }} | {{ metric.coupling | round(2) }} | {{ metric.cohesion | round(2) }} |
 {% endfor %}
 {% endif %}
 

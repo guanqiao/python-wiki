@@ -33,8 +33,10 @@ class ModuleGenerator(BaseDocGenerator):
         try:
             modules_info = self._extract_modules_info(context)
             dependency_graph = self._generate_dependency_graph(context, modules_info)
+            package_analysis = self._extract_package_analysis(context)
+            package_dependency_diagram = self._generate_package_dependency_diagram(context, package_analysis)
             
-            content = self._generate_index_content(context, modules_info, dependency_graph)
+            content = self._generate_index_content(context, modules_info, dependency_graph, package_analysis, package_dependency_diagram)
 
             return self.create_result(
                 content=content,
@@ -45,6 +47,7 @@ class ModuleGenerator(BaseDocGenerator):
                     "module_count": len(modules_info),
                     "total_classes": sum(len(m["classes"]) for m in modules_info),
                     "total_functions": sum(len(m["functions"]) for m in modules_info),
+                    "package_count": package_analysis.get("total_packages", 0),
                 },
             )
 
@@ -227,7 +230,67 @@ class ModuleGenerator(BaseDocGenerator):
 
         return "\n".join(lines)
 
-    def _generate_index_content(self, context: DocGeneratorContext, modules_info: list[dict], dependency_graph: str) -> str:
+    def _extract_package_analysis(self, context: DocGeneratorContext) -> dict[str, Any]:
+        """提取包分析数据"""
+        try:
+            analysis = context.get_package_analysis()
+            return {
+                "total_packages": analysis.get("summary", {}).get("total_packages", 0),
+                "total_dependencies": analysis.get("summary", {}).get("total_dependencies", 0),
+                "circular_dependencies": analysis.get("circular_dependencies", []),
+                "layers": analysis.get("layers", []),
+                "metrics": analysis.get("metrics", []),
+                "subpackages": analysis.get("subpackages", []),
+                "dependencies": analysis.get("dependencies", []),
+                "violations": analysis.get("violations", []),
+            }
+        except Exception:
+            return {}
+
+    def _generate_package_dependency_diagram(self, context: DocGeneratorContext, package_analysis: dict[str, Any]) -> str:
+        """生成包依赖图"""
+        dependencies = package_analysis.get("dependencies", [])
+        if not dependencies:
+            return ""
+        
+        lines = ["graph LR"]
+        
+        package_map = {}
+        for dep in dependencies[:30]:
+            source = dep.get("source", "")
+            target = dep.get("target", "")
+            
+            if source and source not in package_map:
+                safe_name = source.replace(".", "_").replace(":", "_")[:25]
+                package_map[source] = safe_name
+                display_name = source.split(".")[-1] if "." in source else source
+                lines.append(f"    {safe_name}[{display_name}]")
+            
+            if target and target not in package_map:
+                safe_name = target.replace(".", "_").replace(":", "_")[:25]
+                package_map[target] = safe_name
+                display_name = target.split(".")[-1] if "." in target else target
+                lines.append(f"    {safe_name}[{display_name}]")
+        
+        added_edges = set()
+        for dep in dependencies[:30]:
+            source = dep.get("source", "")
+            target = dep.get("target", "")
+            strength = dep.get("strength", 0)
+            
+            if source in package_map and target in package_map:
+                edge_key = f"{package_map[source]}->{package_map[target]}"
+                if edge_key not in added_edges:
+                    label = f"|{strength:.1f}|" if strength > 0.3 else ""
+                    lines.append(f"    {package_map[source]} -->{label} {package_map[target]}")
+                    added_edges.add(edge_key)
+        
+        if len(added_edges) == 0:
+            return ""
+        
+        return "\n".join(lines)
+
+    def _generate_index_content(self, context: DocGeneratorContext, modules_info: list[dict], dependency_graph: str, package_analysis: dict[str, Any] = None, package_dependency_diagram: str = "") -> str:
         """生成模块索引内容"""
         lines = [
             f"# {context.project_name} {self.labels.get('module_documentation', 'Module Documentation')}",
@@ -268,6 +331,46 @@ class ModuleGenerator(BaseDocGenerator):
                 f"```mermaid",
                 f"{dependency_graph}",
                 f"```",
+                "",
+            ])
+
+        if package_analysis:
+            total_packages = package_analysis.get("total_packages", 0)
+            total_pkg_deps = package_analysis.get("total_dependencies", 0)
+            circular_deps = package_analysis.get("circular_dependencies", [])
+            layers = package_analysis.get("layers", [])
+            violations = package_analysis.get("violations", [])
+            
+            lines.extend([
+                "## 包结构分析",
+                "",
+                f"| 指标 | 数值 |",
+                f"|------|------|",
+                f"| 子包数量 | {total_packages} |",
+                f"| 包间依赖 | {total_pkg_deps} |",
+                f"| 循环依赖 | {len(circular_deps)} |",
+                f"| 层级违规 | {len(violations)} |",
+                "",
+            ])
+            
+            if layers:
+                lines.extend([
+                    "### 架构分层",
+                    "",
+                    "| 层级 | 包数量 | 描述 |",
+                    "|------|--------|------|",
+                ])
+                for layer in layers:
+                    lines.append(f"| {layer.get('name', '')} | {len(layer.get('packages', []))} | {layer.get('description', '')} |")
+                lines.append("")
+
+        if package_dependency_diagram:
+            lines.extend([
+                "## 包依赖关系图",
+                "",
+                "```mermaid",
+                f"{package_dependency_diagram}",
+                "```",
                 "",
             ])
 

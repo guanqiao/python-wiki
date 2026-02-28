@@ -222,16 +222,12 @@ class PackageDiagramGenerator(BaseDiagramGenerator):
             module_name = module.name if hasattr(module, "name") else str(module)
             module_names.add(module_name)
             
-            parts = module_name.split(".")
-            if len(parts) > 1:
-                top_package = parts[0]
-            else:
-                top_package = module_name
+            top_package = self._extract_top_package(module_name)
             
             if top_package not in packages_dict:
                 packages_dict[top_package] = {
                     "id": top_package,
-                    "name": top_package,
+                    "name": self._extract_display_name(top_package),
                     "type": "package",
                     "description": "",
                     "file_count": 0,
@@ -247,20 +243,22 @@ class PackageDiagramGenerator(BaseDiagramGenerator):
 
             if hasattr(module, "imports") and module.imports:
                 for imp in module.imports:
-                    imp_module = imp.module if hasattr(imp, "module") else str(imp)
+                    if not hasattr(imp, "module"):
+                        continue
+                    imp_module = imp.module
                     
                     if imp_module.startswith("."):
                         dep_type = "relative"
+                        parts = module_name.replace("\\", "/").replace("/", ".").split(".")
                         if len(parts) > 1:
-                            base = module_name.rsplit(".", 1)[0]
+                            base = module_name.rsplit(".", 1)[0] if "." in module_name else module_name
                             imp_module = f"{base}{imp_module}"
                     else:
                         dep_type = "import"
                     
-                    imp_parts = imp_module.split(".")
-                    imp_top = imp_parts[0]
+                    imp_top = self._extract_top_package(imp_module)
                     
-                    if imp_top in module_names or any(m.startswith(imp_top + ".") for m in module_names):
+                    if imp_top in module_names or any(self._extract_top_package(m) == imp_top for m in module_names):
                         key = (top_package, imp_top)
                         dependencies_dict[key]["count"] += 1
                         dependencies_dict[key]["type"] = dep_type
@@ -307,6 +305,36 @@ class PackageDiagramGenerator(BaseDiagramGenerator):
         }
 
         return self.generate(data, title or f"{project_name} Package Dependencies")
+    
+    def _extract_top_package(self, module_name: str) -> str:
+        """从模块名提取顶层包名"""
+        import re
+        
+        if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
+            parts = re.split(r'[\\/]', module_name)
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                return meaningful_parts[0]
+        
+        if '.' in module_name:
+            return module_name.split(".")[0]
+        
+        return module_name
+    
+    def _extract_display_name(self, name: str) -> str:
+        """提取显示名称"""
+        import re
+        
+        if re.match(r'^[A-Za-z]:[\\/]', name) or name.startswith('/') or name.startswith('\\'):
+            parts = re.split(r'[\\/]', name)
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                return meaningful_parts[-1].replace('.py', '').replace('.java', '').replace('.ts', '')
+        
+        if '.' in name:
+            return name.split('.')[-1]
+        
+        return name
 
     def generate_dependency_matrix(
         self,

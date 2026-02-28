@@ -30,6 +30,19 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     doc_type = DocType.ARCHITECTURE
     template_name = "architecture.md.j2"
 
+    THIRD_PARTY_PREFIXES = {
+        "org.", "com.", "io.", "net.", "javax.", "java.",
+        "liquibase.", "flowable.", "activiti.", "camunda.",
+        "springframework.", "hibernate.", "mybatis.", "apache.",
+        "lombok.", "slf4j.", "log4j.", "junit.", "mockito.",
+        "jackson.", "gson.", "fastjson.", "okhttp.",
+        "retrofit.", "feign.", "dubbo.", "nacos.", "sentinel.",
+        "sharding.", "druid.", "hikari.", "redis.clients.", "mongodb.driver.",
+        "elasticsearch.", "kafka.", "rabbitmq.", "zookeeper.",
+        "curator.", "netty.", "vertx.", "quarkus.", "micronaut.",
+        "jakarta.", "sun.", "jdk.", "oracle.", "ibm.",
+    }
+
     STANDARD_LIBS = {
         "typing", "os", "sys", "json", "pathlib", "asyncio", "abc",
         "dataclasses", "collections", "functools", "itertools", "re",
@@ -73,6 +86,38 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         self.arch_diagram_gen = ArchitectureDiagramGenerator()
         self.package_diagram_gen = PackageDiagramGenerator()
 
+    def _sanitize_id(self, name: str) -> str:
+        """将名称转换为有效的 Mermaid ID"""
+        return self.arch_diagram_gen.sanitize_id(name)
+
+    def _is_third_party_module(self, module_name: str, project_name: str) -> bool:
+        """判断是否为第三方库模块"""
+        module_lower = module_name.lower()
+        
+        for prefix in self.THIRD_PARTY_PREFIXES:
+            if module_lower.startswith(prefix):
+                return True
+        
+        import re
+        if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
+            normalized = module_name.replace('\\', '/').lower()
+            parts = normalized.split('/')
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                first_meaningful = meaningful_parts[0].lower()
+                if first_meaningful in {'org', 'com', 'io', 'net', 'javax', 'java', 'liquibase', 'flowable'}:
+                    return True
+            return False
+        
+        return False
+
+    def _filter_project_modules(self, modules: list, project_name: str) -> list:
+        """过滤出项目自身的模块"""
+        return [m for m in modules if not self._is_third_party_module(
+            m.name if hasattr(m, 'name') else str(m), 
+            project_name
+        )]
+
     async def generate(self, context: DocGeneratorContext) -> DocGeneratorResult:
         """生成架构文档"""
         try:
@@ -108,6 +153,9 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 strengths=arch_data.get("strengths", []),
                 weaknesses=arch_data.get("weaknesses", []),
                 risk_assessment=arch_data.get("risk_assessment", ""),
+                package_analysis=arch_data.get("package_analysis", {}),
+                package_metrics=arch_data.get("package_metrics", []),
+                layer_violations=arch_data.get("layer_violations", []),
             )
 
             return self.create_result(
@@ -197,6 +245,25 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         arch_data["circular_dependencies"] = self._detect_circular_dependencies(context)
         arch_data["hot_spots"] = self._detect_hot_spots(context)
         arch_data["external_dependencies"] = self._analyze_external_dependencies(context)
+        
+        try:
+            package_analysis = context.get_package_analysis()
+            arch_data["package_analysis"] = {
+                "total_packages": package_analysis.get("summary", {}).get("total_packages", 0),
+                "total_dependencies": package_analysis.get("summary", {}).get("total_dependencies", 0),
+                "circular_dependency_count": package_analysis.get("summary", {}).get("circular_dependency_count", 0),
+                "layer_violation_count": package_analysis.get("summary", {}).get("layer_violation_count", 0),
+                "avg_stability": package_analysis.get("summary", {}).get("avg_stability", 0),
+                "avg_cohesion": package_analysis.get("summary", {}).get("avg_cohesion", 0),
+                "layers": package_analysis.get("layers", []),
+                "subpackages": package_analysis.get("subpackages", [])[:20],
+            }
+            arch_data["package_metrics"] = package_analysis.get("metrics", [])[:20]
+            arch_data["layer_violations"] = package_analysis.get("violations", [])
+        except Exception:
+            arch_data["package_analysis"] = {}
+            arch_data["package_metrics"] = []
+            arch_data["layer_violations"] = []
 
         return arch_data
 
@@ -206,7 +273,15 @@ class ArchitectureDocGenerator(BaseDocGenerator):
             return self.labels.get("monolithic_arch", "Monolithic Architecture")
         
         modules = context.parse_result.modules
-        module_names = [m.name.lower() if hasattr(m, "name") else str(m).lower() for m in modules]
+        module_names = []
+        for m in modules:
+            if hasattr(m, "name"):
+                module_names.append(m.name.lower())
+            else:
+                module_names.append(str(m).lower())
+        
+        if len(modules) <= 3:
+            return self.labels.get("simple_script", "Simple Script / Utility")
         
         service_count = sum(1 for name in module_names if "service" in name)
         controller_count = sum(1 for name in module_names if any(kw in name for kw in ["controller", "api", "router", "handler"]))
@@ -226,27 +301,53 @@ class ArchitectureDocGenerator(BaseDocGenerator):
             return self.labels.get("microservice_arch", "Microservice Architecture")
         if controller_count > 0 and service_count > 0 and repo_count > 0:
             return self.labels.get("layered_arch", "Layered Architecture")
+        if service_count > 0 or controller_count > 0:
+            return self.labels.get("modular_arch", "Modular Architecture")
         
         return self.labels.get("monolithic_arch", "Monolithic Architecture")
 
     def _generate_architecture_diagram(self, context: DocGeneratorContext) -> str:
         """生成智能架构图"""
-        if not context.parse_result:
+        if not context.parse_result or not context.parse_result.modules:
             return ""
         
+        filtered_modules = self._filter_project_modules(
+            context.parse_result.modules, 
+            context.project_name
+        )
+        
+        if not filtered_modules:
+            return ""
+        
+        from pywiki.parsers.types import ParseResult
+        filtered_parse_result = ParseResult()
+        filtered_parse_result.modules = filtered_modules
+        
         return self.arch_diagram_gen.generate_from_parse_result(
-            context.parse_result,
+            filtered_parse_result,
             context.project_name,
             f"{context.project_name} {self.labels.get('system_arch', 'System Architecture')}"
         )
 
     def _generate_package_diagram(self, context: DocGeneratorContext) -> str:
         """生成包依赖图"""
-        if not context.parse_result:
+        if not context.parse_result or not context.parse_result.modules:
             return ""
         
+        filtered_modules = self._filter_project_modules(
+            context.parse_result.modules, 
+            context.project_name
+        )
+        
+        if not filtered_modules:
+            return ""
+        
+        from pywiki.parsers.types import ParseResult
+        filtered_parse_result = ParseResult()
+        filtered_parse_result.modules = filtered_modules
+        
         return self.package_diagram_gen.generate_from_parse_result(
-            context.parse_result,
+            filtered_parse_result,
             context.project_name,
             f"{context.project_name} {self.labels.get('package_deps', 'Package Dependencies')}"
         )
@@ -256,7 +357,15 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         if not context.parse_result or not context.parse_result.modules:
             return ""
         
-        modules = context.parse_result.modules[:15]
+        filtered_modules = self._filter_project_modules(
+            context.parse_result.modules, 
+            context.project_name
+        )
+        
+        if not filtered_modules:
+            return ""
+        
+        modules = filtered_modules[:15]
         
         nodes = []
         flows = []
@@ -268,54 +377,77 @@ class ArchitectureDocGenerator(BaseDocGenerator):
             "description": self.labels.get("external_client", "External Client"),
         })
         
+        api_nodes = []
+        service_nodes = []
+        data_nodes = []
+        
         for module in modules:
             module_name = module.name if hasattr(module, "name") else str(module)
             name_lower = module_name.lower()
+            display_name = self._extract_display_name(module_name)
+            node_id = self._sanitize_id(module_name)
             
             if any(kw in name_lower for kw in ["api", "controller", "router", "handler", "endpoint"]):
                 nodes.append({
-                    "id": self._sanitize_id(module_name),
-                    "name": module_name.split(".")[-1],
+                    "id": node_id,
+                    "name": display_name,
                     "type": "process",
                     "description": self.labels.get("api_entry", "API Entry"),
                 })
+                api_nodes.append(node_id)
                 flows.append({
                     "source": "client",
-                    "target": self._sanitize_id(module_name),
+                    "target": node_id,
                     "data_name": "HTTP Request",
                 })
             elif any(kw in name_lower for kw in ["service", "manager", "processor"]):
                 nodes.append({
-                    "id": self._sanitize_id(module_name),
-                    "name": module_name.split(".")[-1],
+                    "id": node_id,
+                    "name": display_name,
                     "type": "process",
                     "description": self.labels.get("business_processing", "Business Processing"),
                 })
+                service_nodes.append(node_id)
             elif any(kw in name_lower for kw in ["repository", "dao", "store", "db", "database"]):
                 nodes.append({
-                    "id": self._sanitize_id(module_name),
-                    "name": module_name.split(".")[-1],
+                    "id": node_id,
+                    "name": display_name,
                     "type": "data_store",
                     "description": self.labels.get("data_storage", "Data Storage"),
                 })
+                data_nodes.append(node_id)
         
-        api_nodes = [n for n in nodes if "API" in n.get("description", "") or "Entry" in n.get("description", "")]
-        service_nodes = [n for n in nodes if "Business" in n.get("description", "") or "业务" in n.get("description", "")]
-        data_nodes = [n for n in nodes if n.get("type") == "data_store"]
-        
-        for api in api_nodes:
-            for svc in service_nodes:
+        if not api_nodes and not service_nodes and not data_nodes:
+            for module in modules[:5]:
+                module_name = module.name if hasattr(module, "name") else str(module)
+                display_name = self._extract_display_name(module_name)
+                node_id = self._sanitize_id(module_name)
+                
+                nodes.append({
+                    "id": node_id,
+                    "name": display_name,
+                    "type": "process",
+                    "description": "Processing",
+                })
                 flows.append({
-                    "source": api["id"],
-                    "target": svc["id"],
+                    "source": "client",
+                    "target": node_id,
+                    "data_name": "Input",
+                })
+
+        for api_id in api_nodes:
+            for svc_id in service_nodes:
+                flows.append({
+                    "source": api_id,
+                    "target": svc_id,
                     "data_name": self.labels.get("request", "Request"),
                 })
         
-        for svc in service_nodes:
-            for data in data_nodes:
+        for svc_id in service_nodes:
+            for data_id in data_nodes:
                 flows.append({
-                    "source": svc["id"],
-                    "target": data["id"],
+                    "source": svc_id,
+                    "target": data_id,
                     "data_name": self.labels.get("data_operation", "Data Operation"),
                 })
         
@@ -331,7 +463,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 lines.append(f"    {node_id}[\"{name}\"]")
                 lines.append(f"    style {node_id} fill:#e1f5fe,stroke:#01579b")
             elif node_type == "process":
-                lines.append(f"    {node_id}({name})")
+                lines.append(f"    {node_id}(\"{name}\")")
                 lines.append(f"    style {node_id} fill:#fff3e0,stroke:#e65100")
             elif node_type == "data_store":
                 lines.append(f"    {node_id}[[\"{name}\"]]")
@@ -345,10 +477,6 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                 lines.append(f"    {source} -->|\"{data_name}\"| {target}")
         
         return "\n".join(lines)
-
-    def _sanitize_id(self, name: str) -> str:
-        """将名称转换为有效的 ID"""
-        return name.replace(".", "_").replace("-", "_").replace(" ", "_")[:30]
 
     def _analyze_external_dependencies(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
         """分析外部依赖"""
@@ -399,17 +527,27 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         if context.parse_result and context.parse_result.modules:
             external_deps = {}
             for module in context.parse_result.modules:
+                if not hasattr(module, "imports") or not module.imports:
+                    continue
                 for imp in module.imports:
-                    if not imp.module.startswith(".") and not imp.module.startswith(context.project_name.split("-")[0]):
-                        base = imp.module.split(".")[0]
-                        if base not in ("typing", "os", "sys", "json", "pathlib", "asyncio", "abc", "dataclasses", "collections", "functools", "itertools", "re", "logging", "time", "datetime", "copy", "enum", "io", "warnings", "contextlib", "threading", "multiprocessing", "concurrent"):
-                            if base not in external_deps:
-                                external_deps[base] = 0
-                            external_deps[base] += 1
+                    if not hasattr(imp, "module"):
+                        continue
+                    imp_module = imp.module
+                    if imp_module.startswith("."):
+                        continue
+                    project_prefix = context.project_name.split("-")[0] if "-" in context.project_name else context.project_name
+                    if imp_module.startswith(project_prefix):
+                        continue
+                    base = imp_module.split(".")[0]
+                    if base in self.STANDARD_LIBS:
+                        continue
+                    if base not in external_deps:
+                        external_deps[base] = 0
+                    external_deps[base] += 1
 
             sorted_deps = sorted(external_deps.items(), key=lambda x: x[1], reverse=True)[:8]
             for dep, count in sorted_deps:
-                safe_name = dep.replace("-", "_").replace(".", "_")
+                safe_name = self._sanitize_id(dep)
                 lines.append(f"    {safe_name}[{dep}<br/>外部系统]")
                 lines.append(f"    System -->|使用| {safe_name}")
 
@@ -423,35 +561,80 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         ]
 
         if context.parse_result and context.parse_result.modules:
+            filtered_modules = self._filter_project_modules(
+                context.parse_result.modules, 
+                context.project_name
+            )
+            
+            if not filtered_modules:
+                lines.append("    end")
+                lines.append("    classDef container fill:#1168bd,stroke:#0b4884,color:#fff")
+                return "\n".join(lines)
+            
             module_groups: dict[str, list] = {}
             
-            for module in context.parse_result.modules:
-                parts = module.name.split(".")
-                if len(parts) > 1:
-                    group = parts[0]
-                else:
-                    group = "core"
+            for module in filtered_modules:
+                module_name = module.name if hasattr(module, "name") else str(module)
+                
+                group = self._extract_module_group(module_name)
                 
                 if group not in module_groups:
                     module_groups[group] = []
-                module_groups[group].append(module.name)
+                module_groups[group].append(module_name)
 
             group_info = []
             for group, modules in module_groups.items():
-                class_count = sum(1 for m in context.parse_result.modules if m.name in modules for _ in m.classes) if context.parse_result else 0
+                class_count = 0
+                for m in filtered_modules:
+                    if m.name in modules:
+                        class_count += len(m.classes) if hasattr(m, "classes") and m.classes else 0
                 group_info.append((group, len(modules), class_count))
             
             group_info.sort(key=lambda x: x[1], reverse=True)
             
             for group, module_count, class_count in group_info[:8]:
-                safe_name = group.replace("-", "_").replace(".", "_")
-                lines.append(f"        {safe_name}[{group}<br/>{module_count} 模块]")
+                safe_name = self._sanitize_id(group)
+                display_name = self._extract_display_name(group)
+                lines.append(f"        {safe_name}[{display_name}<br/>{module_count} 模块]")
                 lines.append(f"        {safe_name}:::container")
 
         lines.append("    end")
         lines.append("    classDef container fill:#1168bd,stroke:#0b4884,color:#fff")
 
         return "\n".join(lines)
+    
+    def _extract_module_group(self, module_name: str) -> str:
+        """从模块名提取分组名称"""
+        import re
+        
+        if re.match(r'^[A-Za-z]:[\\/]', module_name) or module_name.startswith('/') or module_name.startswith('\\'):
+            parts = re.split(r'[\\/]', module_name)
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if len(meaningful_parts) > 1:
+                return meaningful_parts[0]
+            elif meaningful_parts:
+                return meaningful_parts[0]
+        
+        parts = module_name.split(".")
+        if len(parts) > 1:
+            return parts[0]
+        
+        return "core"
+    
+    def _extract_display_name(self, name: str) -> str:
+        """提取显示名称"""
+        import re
+        
+        if re.match(r'^[A-Za-z]:[\\/]', name) or name.startswith('/') or name.startswith('\\'):
+            parts = re.split(r'[\\/]', name)
+            meaningful_parts = [p for p in parts if p and p != '.' and p != '..' and not re.match(r'^[A-Za-z]:$', p)]
+            if meaningful_parts:
+                return meaningful_parts[-1].replace('.py', '').replace('.java', '').replace('.ts', '')
+        
+        if '.' in name:
+            return name.split('.')[-1]
+        
+        return name
 
     def _generate_c4_component(self, context: DocGeneratorContext) -> str:
         """生成 C4 组件图"""
@@ -460,22 +643,32 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         if not context.parse_result or not context.parse_result.modules:
             return "\n".join(lines)
 
+        filtered_modules = self._filter_project_modules(
+            context.parse_result.modules, 
+            context.project_name
+        )
+        
+        if not filtered_modules:
+            return "\n".join(lines)
+
         module_groups: dict[str, list] = defaultdict(list)
         
-        for module in context.parse_result.modules:
-            parts = module.name.split(".")
-            group = parts[0] if len(parts) > 1 else "core"
+        for module in filtered_modules:
+            module_name = module.name if hasattr(module, "name") else str(module)
+            group = self._extract_module_group(module_name)
             module_groups[group].append(module)
 
         for group, modules in list(module_groups.items())[:4]:
-            safe_group = group.replace("-", "_").replace(".", "_")
-            lines.append(f"    subgraph {safe_group}[{group}]")
+            safe_group = self._sanitize_id(group)
+            display_group = self._extract_display_name(group)
+            lines.append(f"    subgraph {safe_group}[{display_group}]")
             
             for module in modules[:5]:
-                safe_name = module.name.replace(".", "_").replace("-", "_")[:20]
-                display_name = module.name.split(".")[-1]
-                class_count = len(module.classes) if module.classes else 0
-                func_count = len(module.functions) if module.functions else 0
+                module_name = module.name if hasattr(module, "name") else str(module)
+                safe_name = self._sanitize_id(module_name)
+                display_name = self._extract_display_name(module_name)
+                class_count = len(module.classes) if hasattr(module, "classes") and module.classes else 0
+                func_count = len(module.functions) if hasattr(module, "functions") and module.functions else 0
                 lines.append(f"        {safe_name}[{display_name}<br/>{class_count} 类, {func_count} 函数]")
             
             lines.append("    end")
@@ -489,27 +682,40 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         if not context.parse_result or not context.parse_result.modules:
             return "\n".join(lines)
 
-        modules = context.parse_result.modules[:20]
+        filtered_modules = self._filter_project_modules(
+            context.parse_result.modules, 
+            context.project_name
+        )
+        
+        if not filtered_modules:
+            return "\n".join(lines)
+        
+        modules = filtered_modules[:20]
         
         module_map = {}
         for module in modules:
-            safe_name = module.name.replace(".", "_").replace("-", "_")[:25]
-            module_map[module.name] = safe_name
-            display_name = module.name.split(".")[-1] if "." in module.name else module.name
+            module_name = module.name if hasattr(module, "name") else str(module)
+            safe_name = self._sanitize_id(module_name)
+            module_map[module_name] = safe_name
+            display_name = self._extract_display_name(module_name)
             lines.append(f"    {safe_name}[{display_name}]")
 
         dependency_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         
         for module in modules:
-            source_safe = module_map[module.name]
+            module_name = module.name if hasattr(module, "name") else str(module)
+            source_safe = module_map[module_name]
             
             if hasattr(module, 'imports') and module.imports:
                 for imp in module.imports:
+                    if not hasattr(imp, "module"):
+                        continue
                     target_module = None
                     
                     for other_module in modules:
-                        if other_module.name == imp.module or other_module.name.startswith(imp.module + "."):
-                            target_module = other_module.name
+                        other_name = other_module.name if hasattr(other_module, "name") else str(other_module)
+                        if other_name == imp.module or other_name.startswith(imp.module + "."):
+                            target_module = other_name
                             break
                     
                     if target_module and target_module in module_map:
@@ -532,6 +738,17 @@ class ArchitectureDocGenerator(BaseDocGenerator):
     def _analyze_layers(self, context: DocGeneratorContext, project_language: str) -> list[dict[str, Any]]:
         """分析分层架构"""
         layers = []
+
+        if not context.parse_result or not context.parse_result.modules:
+            return layers
+        
+        filtered_modules = self._filter_project_modules(
+            context.parse_result.modules, 
+            context.project_name
+        )
+        
+        if not filtered_modules:
+            return layers
 
         layer_patterns = {
             self.labels.get("presentation_layer", "Presentation Layer"): {
@@ -617,13 +834,10 @@ class ArchitectureDocGenerator(BaseDocGenerator):
         elif project_language == "typescript":
             layer_patterns = typescript_layer_patterns
 
-        if not context.parse_result or not context.parse_result.modules:
-            return layers
-
         layer_modules: dict[str, list] = defaultdict(list)
         assigned_modules = set()
 
-        for module in context.parse_result.modules:
+        for module in filtered_modules:
             module_lower = module.name.lower()
             
             matched = False
@@ -662,7 +876,7 @@ class ArchitectureDocGenerator(BaseDocGenerator):
                     if matched:
                         break
 
-        for module in context.parse_result.modules:
+        for module in filtered_modules:
             if module.name not in assigned_modules:
                 if module.classes:
                     has_entity = any(

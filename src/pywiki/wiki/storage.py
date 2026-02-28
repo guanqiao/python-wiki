@@ -148,3 +148,42 @@ class WikiStorage:
         current_hash = hashlib.md5(content.encode()).hexdigest()
         stored_hash = self.get_document_hash(doc_path)
         return current_hash != stored_hash
+
+    def clear_all(self) -> dict:
+        """清空所有生成的Wiki文档（所有语言）
+        
+        Returns:
+            清空结果，包含删除的文件数和目录数
+        """
+        import shutil
+        
+        result = {
+            "deleted_files": 0,
+            "deleted_dirs": 0,
+            "cleared_dirs": [],
+        }
+        
+        if self.output_dir.exists():
+            for item in self.output_dir.iterdir():
+                if item.name == ".history":
+                    shutil.rmtree(item)
+                    item.mkdir(parents=True, exist_ok=True)
+                elif item.name == ".index.json":
+                    continue
+                elif item.is_file():
+                    item.unlink()
+                    result["deleted_files"] += 1
+                elif item.is_dir():
+                    file_count = sum(1 for _ in item.rglob("*") if _.is_file())
+                    dir_count = sum(1 for _ in item.rglob("*") if _.is_dir())
+                    result["deleted_files"] += file_count
+                    result["deleted_dirs"] += dir_count
+                    result["cleared_dirs"].append(item.name)
+                    shutil.rmtree(item)
+        
+        self._index = {"documents": {}, "last_updated": None}
+        self._save_index()
+        
+        self._ensure_directories()
+        
+        return result

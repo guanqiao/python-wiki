@@ -61,12 +61,10 @@ class APIGenerator(BaseDocGenerator):
             project_language = context.project_language or context.detect_project_language()
             
             api_data = {
-                "modules": [],
                 "endpoints": [],
                 "openapi": {},
             }
             
-            api_data["modules"] = self._extract_api_modules(context)
             api_data["endpoints"] = self._extract_rest_endpoints(context, project_language)
             api_data["openapi"] = self._generate_openapi_spec(context, api_data["endpoints"], project_language)
             
@@ -80,9 +78,13 @@ class APIGenerator(BaseDocGenerator):
 
             content = self.render_template(
                 description=f"{context.project_name} {self.labels.get('api_reference', 'API Reference')}",
-                modules=api_data["modules"],
                 endpoints=api_data["endpoints"],
                 openapi=api_data["openapi"],
+                api_overview=api_data.get("api_overview", ""),
+                authentication=api_data.get("authentication", ""),
+                rate_limiting=api_data.get("rate_limiting", ""),
+                common_headers=api_data.get("common_headers", {}),
+                error_handling=api_data.get("error_handling", ""),
             )
 
             return self.create_result(
@@ -91,7 +93,6 @@ class APIGenerator(BaseDocGenerator):
                 success=True,
                 message=self.labels.get("api_doc_success", "API documentation generated successfully"),
                 metadata={
-                    "module_count": len(api_data["modules"]),
                     "endpoint_count": len(api_data["endpoints"]),
                 },
             )
@@ -103,82 +104,6 @@ class APIGenerator(BaseDocGenerator):
                 success=False,
                 message=f"{self.labels.get('generation_failed', 'Generation failed')}: {str(e)}",
             )
-
-    def _extract_api_modules(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
-        """提取 API 相关模块"""
-        api_modules = []
-
-        if not context.parse_result or not context.parse_result.modules:
-            return api_modules
-
-        api_keywords = [
-            "api", "rest", "controller", "handler", "endpoint", 
-            "route", "view", "resource", "service"
-        ]
-
-        for module in context.parse_result.modules:
-            module_name_lower = module.name.lower()
-            
-            if any(kw in module_name_lower for kw in api_keywords):
-                api_module = {
-                    "name": module.name,
-                    "path": module.name.replace(".", "/"),
-                    "description": module.docstring.split("\n")[0] if module.docstring else "",
-                    "classes": [],
-                    "functions": [],
-                }
-
-                for cls in module.classes:
-                    api_class = {
-                        "name": cls.name,
-                        "bases": cls.bases,
-                        "description": cls.docstring.split("\n")[0] if cls.docstring else "",
-                        "methods": [],
-                        "properties": [],
-                    }
-
-                    for prop in cls.properties:
-                        api_class["properties"].append({
-                            "name": prop.name,
-                            "type": prop.type_hint or "Any",
-                            "visibility": prop.visibility,
-                        })
-
-                    for method in cls.methods:
-                        if not method.name.startswith("_"):
-                            api_method = {
-                                "name": method.name,
-                                "params": ", ".join([
-                                    f"{p.name}: {p.type_hint or 'Any'}"
-                                    for p in method.parameters
-                                ]),
-                                "return_type": method.return_type or "None",
-                                "description": method.docstring.split("\n")[0] if method.docstring else "",
-                                "is_async": method.is_async if hasattr(method, 'is_async') else False,
-                            }
-                            api_class["methods"].append(api_method)
-
-                    if api_class["methods"] or api_class["properties"]:
-                        api_module["classes"].append(api_class)
-
-                for func in module.functions:
-                    if not func.name.startswith("_"):
-                        api_func = {
-                            "name": func.name,
-                            "params": ", ".join([
-                                f"{p.name}: {p.type_hint or 'Any'}"
-                                for p in func.parameters
-                            ]),
-                            "return_type": func.return_type or "None",
-                            "description": func.docstring.split("\n")[0] if func.docstring else "",
-                            "is_async": func.is_async if hasattr(func, 'is_async') else False,
-                        }
-                        api_module["functions"].append(api_func)
-
-                if api_module["classes"] or api_module["functions"]:
-                    api_modules.append(api_module)
-
-        return api_modules[:20]
 
     def _extract_rest_endpoints(self, context: DocGeneratorContext, project_language: str) -> list[dict[str, Any]]:
         """提取 REST API 端点"""
@@ -194,32 +119,44 @@ class APIGenerator(BaseDocGenerator):
         return endpoints
 
     def _extract_python_endpoints(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
-        """提取 Python REST API 端点"""
+        """提取 Python REST API 端点
+        
+        只识别真正的 API 提供者：
+        - FastAPI/Flask 路由装饰器 (@app.get, @router.post, @route)
+        - APIRouter 类
+        """
         endpoints = []
         
         if not context.parse_result or not context.parse_result.modules:
             return endpoints
         
         http_methods = ["get", "post", "put", "delete", "patch", "head", "options"]
+        api_decorators = ["APIRouter", "Router", "Blueprint", "route"]
         
         for module in context.parse_result.modules:
             for cls in module.classes:
-                class_endpoints = []
+                is_api_class = False
                 class_base_path = ""
                 
                 for decorator in getattr(cls, 'decorators', []):
-                    if "APIRouter" in decorator or "Router" in decorator:
-                        match = re.search(r'prefix\s*=\s*["\']([^"\']+)["\']', decorator)
-                        if match:
-                            class_base_path = match.group(1)
+                    for api_dec in api_decorators:
+                        if api_dec in decorator:
+                            is_api_class = True
+                            match = re.search(r'prefix\s*=\s*["\']([^"\']+)["\']', decorator)
+                            if match:
+                                class_base_path = match.group(1)
+                            break
                 
+                has_http_methods = False
                 for method in cls.methods:
                     endpoint = self._parse_python_endpoint(method, class_base_path, f"{module.name}.{cls.name}")
                     if endpoint:
-                        class_endpoints.append(endpoint)
+                        endpoints.append(endpoint)
+                        has_http_methods = True
                 
-                endpoints.extend(class_endpoints)
-            
+                if has_http_methods:
+                    is_api_class = True
+                
             for func in module.functions:
                 endpoint = self._parse_python_endpoint(func, "", f"{module.name}")
                 if endpoint:
@@ -289,7 +226,13 @@ class APIGenerator(BaseDocGenerator):
         return parameters
 
     def _extract_java_endpoints(self, context: DocGeneratorContext) -> list[dict[str, Any]]:
-        """提取 Java REST API 端点"""
+        """提取 Java REST API 端点
+        
+        只识别真正的 API 提供者：
+        - Spring REST Controller (@RestController, @Controller)
+        - Dubbo Service (@DubboService, @Service)
+        - Feign Client (@FeignClient)
+        """
         endpoints = []
         
         if not context.parse_result or not context.parse_result.modules:
@@ -304,13 +247,30 @@ class APIGenerator(BaseDocGenerator):
             "RequestMapping": None,
         }
         
+        api_class_markers = [
+            "Spring Controller",
+            "Dubbo:",
+            "Feign Client",
+            "@RestController",
+            "@Controller",
+            "@DubboService",
+            "@FeignClient",
+        ]
+        
         for module in context.parse_result.modules:
             for cls in module.classes:
+                cls_docstring = cls.docstring or ""
+                
+                is_api_class = any(marker in cls_docstring for marker in api_class_markers)
+                
+                if not is_api_class:
+                    continue
+                
                 class_base_path = ""
                 class_consumes = []
                 class_produces = []
+                api_type = "REST"
                 
-                cls_docstring = cls.docstring or ""
                 if "Route:" in cls_docstring:
                     match = re.search(r'Route:\s*([^\s|]+)', cls_docstring)
                     if match:
@@ -324,10 +284,15 @@ class APIGenerator(BaseDocGenerator):
                     if match:
                         class_produces = [p.strip() for p in match.group(1).split(",")]
                 
+                if "Dubbo:" in cls_docstring:
+                    api_type = "Dubbo"
+                elif "Feign Client" in cls_docstring:
+                    api_type = "Feign"
+                
                 for method in cls.methods:
                     endpoint_info = self._parse_java_method_endpoint(
                         method, cls, module, class_base_path, 
-                        class_consumes, class_produces, spring_annotations
+                        class_consumes, class_produces, spring_annotations, api_type
                     )
                     if endpoint_info:
                         endpoints.append(endpoint_info)
@@ -342,7 +307,8 @@ class APIGenerator(BaseDocGenerator):
         class_base_path: str,
         class_consumes: list,
         class_produces: list,
-        spring_annotations: dict
+        spring_annotations: dict,
+        api_type: str = "REST",
     ) -> Optional[dict[str, Any]]:
         """解析Java方法端点"""
         method_docstring = method.docstring or ""
@@ -415,6 +381,7 @@ class APIGenerator(BaseDocGenerator):
             "produces": produces,
             "security": security,
             "tags": [cls.name.replace("Controller", "").replace("Resource", "")],
+            "api_type": api_type,
         }
 
     def _extract_java_method_parameters(self, method) -> list[dict[str, Any]]:
